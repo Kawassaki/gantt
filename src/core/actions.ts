@@ -8,7 +8,6 @@ function uid() {
 }
 
 const TASK_COLORS = ['#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b', '#ef4444', '#ec4899', '#6366f1', '#14b8a6']
-const SUBTASK_COLORS = ['#60a5fa', '#a78bfa', '#22d3ee', '#34d399', '#fbbf24', '#f87171', '#f472b6', '#818cf8', '#2dd4bf']
 
 // --- Snapshot helpers for undo/redo ---
 
@@ -67,7 +66,6 @@ export const addNewSubtaskAtom = atom(null, (get, set, taskId: string) => {
   const tasks = get(tasksAtom)
   const task = tasks.find(t => t.id === taskId)
   if (!task) return
-  const color = SUBTASK_COLORS[task.subtasks.length % SUBTASK_COLORS.length]
   set(tasksAtom, tasks.map(t =>
     t.id === taskId
       ? {
@@ -77,7 +75,7 @@ export const addNewSubtaskAtom = atom(null, (get, set, taskId: string) => {
             name: 'New Subtask',
             startDate: t.startDate,
             endDate: t.endDate,
-            color,
+            color: t.color,
           }],
         }
       : t,
@@ -99,7 +97,9 @@ export const deleteTaskAtom = atom(null, (get, set, taskId: string) => {
 export const addSubtaskAtom = atom(null, (get, set, { taskId, subtask }: { taskId: string; subtask: Omit<Subtask, 'id'> }) => {
   set(pushUndoAtom)
   set(tasksAtom, get(tasksAtom).map(t =>
-    t.id === taskId ? { ...t, subtasks: [...t.subtasks, { ...subtask, id: 's-' + uid() }] } : t,
+    t.id === taskId
+      ? { ...t, subtasks: [...t.subtasks, { ...subtask, id: 's-' + uid(), color: t.color }] }
+      : t,
   ))
 })
 

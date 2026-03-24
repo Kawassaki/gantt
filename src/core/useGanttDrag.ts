@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useMemo } from 'react'
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
 import { useAtom } from 'jotai'
 import { parseISO, addDays, differenceInDays, format } from 'date-fns'
 import { tasksAtom } from './store'
@@ -178,7 +178,7 @@ function computeDropTarget(
               const origIdx = sourceTask.subtasks.findIndex(s => s.id === dragSubtaskId)
               if (targetSubIndex > origIdx) adjustedIdx = targetSubIndex - 1
             }
-            subs.splice(adjustedIdx, 0, sub)
+            subs.splice(adjustedIdx, 0, { ...sub, color: t.color })
             return { ...t, subtasks: subs }
           }
           return t
@@ -194,6 +194,7 @@ export function useGanttDrag(
   pxPerDay: number,
   rowConfig: { taskRowH: number; subtaskRowH: number } = { taskRowH: 56, subtaskRowH: 36 },
   chartBodyRef?: React.RefObject<HTMLElement | null>,
+  displayTasks?: Task[],
 ) {
   const [tasks, setTasks] = useAtom(tasksAtom)
   const [dragInfo, setDragInfo] = useState<{
@@ -209,6 +210,7 @@ export function useGanttDrag(
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
   const snapshotPushed = useRef(false)
   const pushUndo = usePushUndoSnapshot()
+  const prevUserSelectRef = useRef<string | null>(null)
 
   const getPointerMode = useCallback(
     (e: React.PointerEvent, el: HTMLElement): DragMode => {
@@ -222,10 +224,21 @@ export function useGanttDrag(
   )
 
   const startDrag = useCallback(
-    (e: React.PointerEvent, taskId: string, subtaskId?: string) => {
+    (
+      e: React.PointerEvent,
+      taskId: string,
+      subtaskId?: string,
+      forcedMode?: DragMode,
+    ) => {
       const el = e.currentTarget as HTMLElement
       el.setPointerCapture(e.pointerId)
-      const mode = getPointerMode(e, el)
+      const mode = forcedMode ?? getPointerMode(e, el)
+      e.preventDefault()
+
+      if (prevUserSelectRef.current === null) {
+        prevUserSelectRef.current = document.body.style.userSelect
+      }
+      document.body.style.userSelect = 'none'
 
       let origStart: string, origEnd: string
       const task = tasks.find(t => t.id === taskId)
@@ -304,10 +317,11 @@ export function useGanttDrag(
         const rect = chartBodyRef.current.getBoundingClientRect()
         const scrollTop = chartBodyRef.current.scrollTop
         const relY = e.clientY - rect.top + scrollTop
+        const layoutTasks = displayTasks ?? tasks
 
         const target = computeDropTarget(
           relY,
-          tasks,
+          layoutTasks,
           dragInfo.taskId,
           dragInfo.subtaskId,
           rowConfig.taskRowH,
@@ -318,7 +332,7 @@ export function useGanttDrag(
         setDropTarget(null)
       }
     },
-    [dragInfo, pxPerDay, setTasks, pushUndo, tasks, chartBodyRef, rowConfig],
+    [dragInfo, pxPerDay, setTasks, pushUndo, tasks, chartBodyRef, rowConfig, displayTasks],
   )
 
   const endDrag = useCallback(() => {
@@ -327,7 +341,16 @@ export function useGanttDrag(
     }
     setDragInfo(null)
     setDropTarget(null)
+    document.body.style.userSelect = prevUserSelectRef.current ?? ''
+    prevUserSelectRef.current = null
   }, [dropTarget, setTasks])
+
+  useEffect(() => {
+    return () => {
+      document.body.style.userSelect = prevUserSelectRef.current ?? ''
+      prevUserSelectRef.current = null
+    }
+  }, [])
 
   const getCursor = useCallback(
     (e: React.PointerEvent, el: HTMLElement): string => {

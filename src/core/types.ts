@@ -27,6 +27,7 @@ export interface TimelineConfig {
   startDate: string
   endDate: string
   zoomLevel: number // pixels per day
+  viewMode?: 'week' | 'month' | 'year'
 }
 
 export interface GanttExport {

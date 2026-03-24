@@ -6,13 +6,29 @@ Your task is to build the gantt feature for this app. I want it to be creative a
 
 You have an empty directory here, I want you to initialize a project with the following specs:
 
-- Vite
+- Nextjs (I will use vercel infrastructure to deploy it)
 - Tailwind
 - React
 - Typescript
 - pnpm
+- Use jotai to be more flexible to update the shared state
+- Figure out the best way to keep the state if the user closes the page (SQLite, local storage, etc...) and implement it
+
+Features to be created:
+
+- On the side panel I want to be able to add/remove new tasks with a icon button "+" or "thrash" respectively
+- On the side panel for each task I also want to be able to add/remove sub tasks with a icon button "+" or "thrash" respectively
+- On the chart I want to be able to drag the tasks and subtasks up and down to change the order:
+- If I drag the a task all sub tasks should be dragged to the same position as well
+- A sub task can be dragged to another task and the chart/side panel should be updated (including matching colors with the new task)
+- If I click on the edge of the task/subtask I need to be able to increase/descrese the size within the timeline (only Horizontal)
+- The main controllers of the page should be well designed and accessible
+- If I hit cntrl+z it should undo the changes
+- If I hit cntrl+shift+z it should redo the changes
+- I want to be able to change the view between, weekly, monthly and yearly
+- I want to be able to import/export the gantt data via json file
 
 Once initialized, I want you to create FIVE different designs.
-Each design should be creative and unique from all the others that you create. They should be hosted on /gantt-1, /gantt-2, /gantt-3, /gantt-4 and /gantt-6 respectively
+Each design should be creative and unique from all the others that you create. They should be hosted on /gantt-1, /gantt-2, /gantt-3, /gantt-4 and /gantt-5 respectively
 
 Use the following por for the dev server: 4000

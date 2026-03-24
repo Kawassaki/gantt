@@ -124,4 +124,5 @@ export const defaultTimelineConfig: TimelineConfig = {
   startDate: d(-2),
   endDate: d(50),
   zoomLevel: 40,
+  viewMode: 'week',
 }

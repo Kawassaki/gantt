@@ -45,6 +45,7 @@ export function validateExport(data: unknown): GanttExport | null {
   if (!o.timelineConfig || typeof o.timelineConfig !== 'object') return null
   const tc = o.timelineConfig as Record<string, unknown>
   if (!isDateStr(tc.startDate) || !isDateStr(tc.endDate) || typeof tc.zoomLevel !== 'number') return null
+  if (tc.viewMode !== undefined && tc.viewMode !== 'week' && tc.viewMode !== 'month' && tc.viewMode !== 'year') return null
   return data as GanttExport
 }
 
