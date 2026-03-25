@@ -1,8 +1,6 @@
 # Gantt Chart App
 
-Interactive Gantt planner built with React + TypeScript.
-
-Current implementation renders the `Warm Earth` experience in `src/designs/gantt-2/GanttEarth.tsx` with rich editing, drag scheduling, hierarchy controls, color tools, undo/redo, and local persistence.
+Interactive Gantt planner built with React + TypeScript
 
 ## Quick Start
 
