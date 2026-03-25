@@ -18,6 +18,56 @@ pnpm build
 pnpm preview
 ```
 
+## Local Setup
+
+### Prerequisites
+
+- Node.js 20+ (LTS recommended)
+- pnpm 9+
+
+Install pnpm globally if needed:
+
+```bash
+npm install -g pnpm
+```
+
+### 1) Install dependencies
+
+From the project root:
+
+```bash
+pnpm install
+```
+
+### 2) Run the app in development
+
+```bash
+pnpm dev
+```
+
+Vite will print a local URL in the terminal (usually `http://localhost:5173`).
+
+### 3) Build for production
+
+```bash
+pnpm build
+```
+
+### 4) Preview the production build
+
+```bash
+pnpm preview
+```
+
+### Useful scripts
+
+- `pnpm lint` - run Oxlint + ESLint
+- `pnpm lint:fix` - auto-fix lint issues where possible
+- `pnpm format` - format files with Prettier
+- `pnpm test` - run tests once
+- `pnpm test:watch` - run tests in watch mode
+- `pnpm test:coverage` - run tests with coverage output
+
 ## Documentation
 
 - Full implementation breakdown: `docs/gantt-features-and-implementation-2026-03-25.md`
