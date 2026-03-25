@@ -20,7 +20,7 @@ pnpm preview
 
 ## Documentation
 
-- Full implementation breakdown: `docs/gantt-features-and-implementation.md`
+- Full implementation breakdown: `docs/gantt-features-and-implementation-2026-03-25.md`
 
 ## Tech Stack
 
@@ -165,4 +165,4 @@ Validation is enforced before import.
 
 - This README is the high-level reference.
 - For per-feature implementation details and behavior notes, use:
-  - `docs/gantt-features-and-implementation.md`
+  - `docs/gantt-features-and-implementation-2026-03-25.md`

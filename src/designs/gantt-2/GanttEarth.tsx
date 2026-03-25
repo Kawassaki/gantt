@@ -1,20 +1,34 @@
 import { useRef, useCallback, useMemo, useState, useEffect } from "react";
 import { useAtomValue, useSetAtom } from "jotai";
-import { ChevronDown, Pipette, Plus, Trash2 } from "lucide-react";
+import {
+  ChevronDown,
+  LocateFixed,
+  Moon,
+  Pipette,
+  Plus,
+  Sun,
+  Trash2,
+} from "lucide-react";
+import { addDays, isValid, parseISO } from "date-fns";
+import type { DateRange } from "react-day-picker";
 import { tasksAtom, markersAtom } from "../../core/store";
 import {
   addNewTaskAtom,
   addNewSubtaskAtom,
+  addMarkerAtom,
+  removeMarkerAtom,
   deleteTaskAtom,
   deleteSubtaskAtom,
   updateTaskAtom,
   updateSubtaskAtom,
+  updateMarkerAtom,
 } from "../../core/actions";
 import { useTimeline } from "../../core/useTimeline";
 import { useGanttDrag } from "../../core/useGanttDrag";
 import { useKeyboardShortcuts } from "../../core/useKeyboardShortcuts";
 import { GanttToolbar } from "../../core/GanttToolbar";
-import type { Task } from "../../core/types";
+import { DateRangePicker } from "../../components/ui/date-range-picker";
+import type { Marker, Task } from "../../core/types";
 
 const TASK_ROW_H = 56;
 const SUBTASK_ROW_H = 36;
@@ -31,15 +45,87 @@ const TASK_PRESET_COLORS = [
   "#6554C0",
 ];
 
-const C = {
-  cream: "#F4F5F7",
-  terracotta: "#0052CC",
-  sage: "#4C9AFF",
-  charcoal: "#172B4D",
-  ivory: "#FFFFFF",
-  ruleLight: "rgba(9,30,66,0.08)",
-  ruleVert: "rgba(9,30,66,0.04)",
-  barShadow: "0 1px 2px rgba(9,30,66,0.12), 0 0 1px rgba(9,30,66,0.2)",
+type ThemeMode = "light" | "dark";
+
+const THEME_STORAGE_KEY = "gantt-theme-mode";
+
+type TimelineMode = "day" | "week" | "month" | "year";
+
+function parseConfigDate(value: string): Date | undefined {
+  const parsed = parseISO(value);
+  return isValid(parsed) ? parsed : undefined;
+}
+
+function toConfigDate(value: Date) {
+  const yyyy = value.getFullYear();
+  const mm = String(value.getMonth() + 1).padStart(2, "0");
+  const dd = String(value.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+const THEME_COLORS: Record<
+  ThemeMode,
+  {
+    appBg: string;
+    cream: string;
+    terracotta: string;
+    sage: string;
+    charcoal: string;
+    ivory: string;
+    ruleLight: string;
+    ruleVert: string;
+    barShadow: string;
+    overlayOpacity: number;
+    toolbarBg: string;
+    pillBg: string;
+    editorBg: string;
+    rowHover: string;
+    toolbarBtnBg: string;
+    toolbarBtnBorder: string;
+    toolbarBtnHoverBg: string;
+    toolbarBtnHoverBorder: string;
+  }
+> = {
+  light: {
+    appBg: "#F4F5F7",
+    cream: "#F4F5F7",
+    terracotta: "#0052CC",
+    sage: "#4C9AFF",
+    charcoal: "#172B4D",
+    ivory: "#FFFFFF",
+    ruleLight: "rgba(9,30,66,0.08)",
+    ruleVert: "rgba(9,30,66,0.04)",
+    barShadow: "0 1px 2px rgba(9,30,66,0.12), 0 0 1px rgba(9,30,66,0.2)",
+    overlayOpacity: 0.045,
+    toolbarBg: "rgba(244,245,247,0.92)",
+    pillBg: "rgba(255,255,255,0.9)",
+    editorBg: "rgba(255,255,255,0.9)",
+    rowHover: "rgba(0,82,204,0.04)",
+    toolbarBtnBg: "rgba(9,30,66,0.06)",
+    toolbarBtnBorder: "rgba(9,30,66,0.1)",
+    toolbarBtnHoverBg: "rgba(0,82,204,0.1)",
+    toolbarBtnHoverBorder: "rgba(0,82,204,0.25)",
+  },
+  dark: {
+    appBg: "#0D1117",
+    cream: "#161B22",
+    terracotta: "#58A6FF",
+    sage: "#2F81F7",
+    charcoal: "#E6EDF3",
+    ivory: "#0D1117",
+    ruleLight: "rgba(230,237,243,0.16)",
+    ruleVert: "rgba(230,237,243,0.08)",
+    barShadow: "0 1px 2px rgba(0,0,0,0.5), 0 0 1px rgba(0,0,0,0.75)",
+    overlayOpacity: 0.02,
+    toolbarBg: "rgba(22,27,34,0.86)",
+    pillBg: "rgba(13,17,23,0.88)",
+    editorBg: "rgba(13,17,23,0.9)",
+    rowHover: "rgba(88,166,255,0.08)",
+    toolbarBtnBg: "rgba(230,237,243,0.08)",
+    toolbarBtnBorder: "rgba(230,237,243,0.16)",
+    toolbarBtnHoverBg: "rgba(88,166,255,0.2)",
+    toolbarBtnHoverBorder: "rgba(88,166,255,0.4)",
+  },
 };
 
 function rowHeight(task: Task) {
@@ -85,13 +171,13 @@ const GrainFilter = () => (
   </svg>
 );
 
-const GrainOverlay = () => (
+const GrainOverlay = ({ opacity }: { opacity: number }) => (
   <div
     style={{
       position: "absolute",
       inset: 0,
       filter: "url(#earth-grain)",
-      opacity: 0.045,
+      opacity,
       pointerEvents: "none",
       zIndex: 50,
     }}
@@ -105,6 +191,7 @@ function WavyConnector({
   childWidth,
   parentBottom,
   childTop,
+  strokeColor,
 }: {
   parentLeft: number;
   parentWidth: number;
@@ -112,6 +199,7 @@ function WavyConnector({
   childWidth: number;
   parentBottom: number;
   childTop: number;
+  strokeColor: string;
 }) {
   const x1 = parentLeft + 15;
   const y1 = parentBottom;
@@ -123,7 +211,7 @@ function WavyConnector({
     <path
       d={`M${x1},${y1} C${x1 + waveAmp},${midY - 3} ${x2 - waveAmp},${midY + 3} ${x2},${y2}`}
       fill="none"
-      stroke={C.charcoal}
+      stroke={strokeColor}
       strokeWidth={1.5}
       strokeDasharray="4 3"
       opacity={0.3}
@@ -169,23 +257,71 @@ const globalStyles = `
   transition: background-color 0.15s ease;
 }
 .earth-row:hover {
-  background-color: rgba(0,82,204,0.04);
+  background-color: var(--earth-row-hover);
 }
 .earth-toolbar-btn {
-  background: rgba(9,30,66,0.06);
-  border: 1px solid rgba(9,30,66,0.1);
-  color: #172B4D;
+  background: var(--earth-toolbar-btn-bg);
+  border: 1px solid var(--earth-toolbar-btn-border);
+  color: var(--earth-charcoal);
   transition: all 0.15s ease;
 }
 .earth-toolbar-btn:hover {
-  background: rgba(0,82,204,0.1);
-  border-color: rgba(0,82,204,0.25);
+  background: var(--earth-toolbar-btn-hover-bg);
+  border-color: var(--earth-toolbar-btn-hover-border);
 }
 .earth-toolbar-btn:disabled {
   opacity: 0.35;
 }
+.earth-toolbar-btn-glass {
+  border-radius: 999px !important;
+  backdrop-filter: blur(8px);
+}
+.earth-toolbar-btn-editorial {
+  border-radius: 5px !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding-inline: 10px !important;
+}
+.earth-toolbar-btn-capsule {
+  border-radius: 999px !important;
+  border-color: rgba(88, 166, 255, 0.35) !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+.earth-toolbar-btn-brutalist {
+  border-radius: 0 !important;
+  border-width: 2px !important;
+  font-weight: 700 !important;
+  box-shadow: 2px 2px 0 rgba(23, 43, 77, 0.35);
+}
+.earth-toolbar-btn-minimal {
+  border-radius: 999px !important;
+  border-color: transparent !important;
+  background: transparent !important;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  padding: 4px !important;
+}
+.earth-toolbar-btn-minimal.earth-toolbar-btn--io {
+  text-decoration: none;
+}
+.earth-toolbar-btn-minimal:hover {
+  border-color: var(--earth-toolbar-btn-border) !important;
+  background: var(--earth-toolbar-btn-bg) !important;
+}
+.earth-divider-glass,
+.earth-divider-editorial,
+.earth-divider-capsule,
+.earth-divider-brutalist,
+.earth-divider-minimal {
+  width: 1px;
+  height: 18px;
+}
+.earth-divider-brutalist {
+  width: 2px;
+  opacity: 0.6;
+}
 .earth-title {
-  color: #0052CC;
+  color: var(--earth-accent);
 }
 @keyframes earth-subrow-in {
   from {
@@ -203,18 +339,31 @@ const globalStyles = `
 `;
 
 export default function GanttEarth() {
+  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+    if (typeof window === "undefined") return "light";
+    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored === "light" || stored === "dark") return stored;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
+  });
+  const C = THEME_COLORS[themeMode];
   const tasks = useAtomValue(tasksAtom);
   const markers = useAtomValue(markersAtom);
   const {
+    config,
     pxPerDay,
     totalWidth,
     viewMode,
+    dayColumns,
     gridColumns,
     topHeaders,
     bottomHeaders,
     barStyle,
     dateToX,
+    xToDate,
     setViewMode,
+    setDateRange,
   } = useTimeline();
   const leftRef = useRef<HTMLDivElement>(null);
   const rightRef = useRef<HTMLDivElement>(null);
@@ -224,6 +373,13 @@ export default function GanttEarth() {
   const resizeStartRef = useRef<{ startX: number; startWidth: number } | null>(
     null,
   );
+  const markerDragRef = useRef<{
+    markerId: string;
+    pointerId: number;
+    startClientX: number;
+    currentX: number;
+    startX: number;
+  } | null>(null);
   const prevCursorRef = useRef<string | null>(null);
   const prevUserSelectRef = useRef<string | null>(null);
   const [leftPanelWidth, setLeftPanelWidth] = useState(LEFT_PANEL_DEFAULT_W);
@@ -259,6 +415,9 @@ export default function GanttEarth() {
   const deleteSubtask = useSetAtom(deleteSubtaskAtom);
   const updateTask = useSetAtom(updateTaskAtom);
   const updateSubtask = useSetAtom(updateSubtaskAtom);
+  const addMarker = useSetAtom(addMarkerAtom);
+  const removeMarker = useSetAtom(removeMarkerAtom);
+  const updateMarker = useSetAtom(updateMarkerAtom);
   useKeyboardShortcuts();
 
   const [editingName, setEditingName] = useState<{
@@ -267,10 +426,89 @@ export default function GanttEarth() {
     value: string;
   } | null>(null);
   const [openColorTaskId, setOpenColorTaskId] = useState<string | null>(null);
-
-  const startNameEdit = useCallback((taskId: string, currentName: string, subtaskId?: string) => {
-    setEditingName({ taskId, subtaskId, value: currentName });
+  const [draggingMarkerId, setDraggingMarkerId] = useState<string | null>(null);
+  const [draggingMarkerX, setDraggingMarkerX] = useState<number | null>(null);
+  const [editingMarker, setEditingMarker] = useState<{
+    markerId: string;
+    value: string;
+  } | null>(null);
+  const [openMarkerMenuId, setOpenMarkerMenuId] = useState<string | null>(null);
+  const toggleTheme = useCallback(() => {
+    setThemeMode((prev) => (prev === "light" ? "dark" : "light"));
   }, []);
+
+  const selectedRange = useMemo<DateRange | undefined>(
+    () => ({
+      from: parseConfigDate(config.startDate),
+      to: parseConfigDate(config.endDate),
+    }),
+    [config.endDate, config.startDate],
+  );
+
+  const taskDateBounds = useMemo(() => {
+    let minTime = Number.POSITIVE_INFINITY;
+    let maxTime = Number.NEGATIVE_INFINITY;
+    for (const task of tasks) {
+      const allDates = [
+        task.startDate,
+        task.endDate,
+        ...task.subtasks.flatMap((sub) => [sub.startDate, sub.endDate]),
+      ];
+      for (const value of allDates) {
+        const parsed = parseISO(value);
+        if (!isValid(parsed)) continue;
+        const time = parsed.getTime();
+        minTime = Math.min(minTime, time);
+        maxTime = Math.max(maxTime, time);
+      }
+    }
+    if (!Number.isFinite(minTime) || !Number.isFinite(maxTime)) return null;
+    return {
+      startDate: toConfigDate(new Date(minTime)),
+      endDate: toConfigDate(new Date(maxTime)),
+    };
+  }, [tasks]);
+
+  const applyMode = useCallback(
+    (mode: TimelineMode) => {
+      setViewMode(mode);
+    },
+    [setViewMode],
+  );
+
+  const handleResetToTaskWindow = useCallback(() => {
+    const viewport = rightRef.current;
+    if (!viewport || !taskDateBounds) return;
+    const rangeStart = dateToX(taskDateBounds.startDate);
+    const rangeEnd = dateToX(taskDateBounds.endDate);
+    const rangeWidth = Math.max(pxPerDay, rangeEnd - rangeStart);
+    const padding = pxPerDay * 2;
+    const targetLeft =
+      rangeStart -
+      Math.max(0, (viewport.clientWidth - rangeWidth) / 2) -
+      padding;
+    const maxLeft = Math.max(0, totalWidth - viewport.clientWidth);
+    const clampedLeft = Math.min(maxLeft, Math.max(0, targetLeft));
+    viewport.scrollTo({ left: clampedLeft, behavior: "smooth" });
+    if (headerRightRef.current) {
+      headerRightRef.current.scrollLeft = clampedLeft;
+    }
+  }, [dateToX, pxPerDay, taskDateBounds, totalWidth]);
+
+  const handleRangeChange = useCallback(
+    (range: DateRange | undefined) => {
+      if (!range?.from || !range?.to) return;
+      setDateRange(toConfigDate(range.from), toConfigDate(range.to));
+    },
+    [setDateRange],
+  );
+
+  const startNameEdit = useCallback(
+    (taskId: string, currentName: string, subtaskId?: string) => {
+      setEditingName({ taskId, subtaskId, value: currentName });
+    },
+    [],
+  );
 
   const cancelNameEdit = useCallback(() => {
     setEditingName(null);
@@ -347,7 +585,12 @@ export default function GanttEarth() {
   );
 
   const handleRowClick = useCallback(
-    (e: React.MouseEvent, taskId: string, currentName: string, subtaskId?: string) => {
+    (
+      e: React.MouseEvent,
+      taskId: string,
+      currentName: string,
+      subtaskId?: string,
+    ) => {
       const target = e.target as HTMLElement;
       if (target.closest("button") || target.closest("input")) return;
       if (editingName || isDragging) return;
@@ -391,7 +634,10 @@ export default function GanttEarth() {
     (e: React.PointerEvent<HTMLDivElement>) => {
       e.preventDefault();
       e.stopPropagation();
-      resizeStartRef.current = { startX: e.clientX, startWidth: leftPanelWidth };
+      resizeStartRef.current = {
+        startX: e.clientX,
+        startWidth: leftPanelWidth,
+      };
       setIsResizingSidebar(true);
       prevCursorRef.current = document.body.style.cursor;
       prevUserSelectRef.current = document.body.style.userSelect;
@@ -409,10 +655,7 @@ export default function GanttEarth() {
       const delta = e.clientX - resizeStartRef.current.startX;
       const next = Math.min(
         LEFT_PANEL_MAX_W,
-        Math.max(
-          LEFT_PANEL_MIN_W,
-          resizeStartRef.current.startWidth + delta,
-        ),
+        Math.max(LEFT_PANEL_MIN_W, resizeStartRef.current.startWidth + delta),
       );
       setLeftPanelWidth(next);
     };
@@ -445,7 +688,15 @@ export default function GanttEarth() {
   }, []);
 
   useEffect(() => {
-    if (!openColorTaskId) return;
+    window.localStorage.setItem(THEME_STORAGE_KEY, themeMode);
+    document.documentElement.dataset.theme = themeMode;
+    document.documentElement.style.setProperty("color-scheme", themeMode);
+    document.documentElement.style.setProperty("--app-bg", C.appBg);
+    document.documentElement.style.setProperty("--app-text", C.charcoal);
+  }, [C.appBg, C.charcoal, themeMode]);
+
+  useEffect(() => {
+    if (!openColorTaskId && !openMarkerMenuId) return;
     const onPointerDown = (e: PointerEvent) => {
       const target = e.target as HTMLElement;
       if (
@@ -454,11 +705,18 @@ export default function GanttEarth() {
       ) {
         return;
       }
+      if (
+        target.closest("[data-marker-actions-menu]") ||
+        target.closest("[data-marker-actions-trigger]")
+      ) {
+        return;
+      }
       setOpenColorTaskId(null);
+      setOpenMarkerMenuId(null);
     };
     window.addEventListener("pointerdown", onPointerDown);
     return () => window.removeEventListener("pointerdown", onPointerDown);
-  }, [openColorTaskId]);
+  }, [openColorTaskId, openMarkerMenuId]);
 
   const syncScroll = useCallback((source: "left" | "right") => {
     const l = leftRef.current;
@@ -473,7 +731,156 @@ export default function GanttEarth() {
     }
   }, []);
 
+  const clampMarkerX = useCallback(
+    (x: number) => Math.max(0, Math.min(totalWidth, x)),
+    [totalWidth],
+  );
+
+  const handleMarkerPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>, marker: Marker) => {
+      if (e.button !== 0) return;
+      const target = e.target as HTMLElement;
+      if (target.closest("input") || target.closest("button")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const startX = clampMarkerX(dateToX(marker.date));
+      markerDragRef.current = {
+        markerId: marker.id,
+        pointerId: e.pointerId,
+        startClientX: e.clientX,
+        currentX: startX,
+        startX,
+      };
+      setDraggingMarkerId(marker.id);
+      setDraggingMarkerX(startX);
+    },
+    [clampMarkerX, dateToX],
+  );
+
+  const handleMarkerDoubleClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>, marker: Marker) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setEditingMarker({ markerId: marker.id, value: marker.label });
+    },
+    [],
+  );
+
+  const commitMarkerEdit = useCallback(() => {
+    if (!editingMarker) return;
+    const marker = markers.find((m) => m.id === editingMarker.markerId);
+    if (!marker) {
+      setEditingMarker(null);
+      return;
+    }
+    const trimmed = editingMarker.value.trim();
+    if (trimmed && trimmed !== marker.label) {
+      updateMarker({ ...marker, label: trimmed });
+    }
+    setEditingMarker(null);
+  }, [editingMarker, markers, updateMarker]);
+
+  const cancelMarkerEdit = useCallback(() => {
+    setEditingMarker(null);
+  }, []);
+
+  const handleMarkerColorChange = useCallback(
+    (markerId: string, nextColor: string) => {
+      const marker = markers.find((m) => m.id === markerId);
+      if (!marker || marker.color === nextColor) return;
+      updateMarker({ ...marker, color: nextColor });
+    },
+    [markers, updateMarker],
+  );
+
+  const handleRemoveMarker = useCallback(
+    (markerId: string) => {
+      if (editingMarker?.markerId === markerId) {
+        setEditingMarker(null);
+      }
+      setOpenMarkerMenuId((prev) => (prev === markerId ? null : prev));
+      removeMarker(markerId);
+    },
+    [editingMarker, removeMarker],
+  );
+
+  const handleChartDoubleClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (editingMarker) return;
+      const target = e.target as HTMLElement;
+      if (target.closest("[data-marker-id]")) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const x = clampMarkerX(e.clientX - rect.left);
+      const markerDate = xToDate(x);
+      addMarker({
+        date: markerDate,
+        label: `Marker ${markers.length + 1}`,
+        color: C.terracotta,
+      });
+    },
+    [
+      C.terracotta,
+      addMarker,
+      clampMarkerX,
+      editingMarker,
+      markers.length,
+      xToDate,
+    ],
+  );
+
+  useEffect(() => {
+    if (!draggingMarkerId) return;
+
+    const onPointerMove = (e: PointerEvent) => {
+      const drag = markerDragRef.current;
+      if (!drag || e.pointerId !== drag.pointerId) return;
+      const delta = e.clientX - drag.startClientX;
+      const nextX = clampMarkerX(drag.startX + delta);
+      drag.currentX = nextX;
+      setDraggingMarkerX(nextX);
+    };
+
+    const finish = (e?: PointerEvent) => {
+      const drag = markerDragRef.current;
+      if (!drag) return;
+      if (e && e.pointerId !== drag.pointerId) return;
+      const marker = markers.find((m) => m.id === drag.markerId);
+      if (marker) {
+        const nextDate = xToDate(drag.currentX);
+        if (nextDate !== marker.date) {
+          updateMarker({ ...marker, date: nextDate });
+        }
+      }
+      markerDragRef.current = null;
+      setDraggingMarkerId(null);
+      setDraggingMarkerX(null);
+    };
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", finish);
+    window.addEventListener("pointercancel", finish);
+
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", finish);
+      window.removeEventListener("pointercancel", finish);
+    };
+  }, [clampMarkerX, draggingMarkerId, markers, updateMarker, xToDate]);
+
   const chartHeight = totalHeight(displayTasks);
+  const chartStartDate = useMemo(
+    () => parseISO(config.startDate),
+    [config.startDate],
+  );
+  const weekendColumns = useMemo(
+    () =>
+      dayColumns.filter((_, index) => {
+        const day = addDays(chartStartDate, index);
+        const dayOfWeek = day.getDay();
+        return dayOfWeek === 0 || dayOfWeek === 6;
+      }),
+    [chartStartDate, dayColumns],
+  );
 
   const rowOffsets = useMemo(() => {
     const offsets: number[] = [];
@@ -485,85 +892,307 @@ export default function GanttEarth() {
     return offsets;
   }, [displayTasks]);
 
+  const renderThemeControl = ({
+    containerBg,
+    containerBorder,
+    inactiveColor,
+    themeActiveBg,
+    shadow,
+  }: {
+    containerBg: string;
+    containerBorder: string;
+    inactiveColor: string;
+    themeActiveBg: string;
+    shadow?: string;
+  }) => (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        padding: 4,
+        borderRadius: 999,
+        border: `1px solid ${containerBorder}`,
+        background: containerBg,
+        boxShadow: shadow,
+        flexShrink: 0,
+      }}
+    >
+      <button
+        onClick={toggleTheme}
+        style={{
+          border: "none",
+          borderRadius: 999,
+          width: "100%",
+          height: 26,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+          color: inactiveColor,
+          background: themeMode === "dark" ? themeActiveBg : "transparent",
+          transition: "all 0.15s ease",
+        }}
+        title={`Switch to ${themeMode === "light" ? "dark" : "light"} mode`}
+        aria-label={`Switch to ${themeMode === "light" ? "dark" : "light"} mode`}
+      >
+        {themeMode === "light" ? <Moon size={14} /> : <Sun size={14} />}
+      </button>
+    </div>
+  );
+
   return (
     <div
       style={{
-        background: C.cream,
+        background: C.appBg,
         color: C.charcoal,
         height: "100vh",
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
         position: "relative",
+        transition: "background-color 0.2s ease, color 0.2s ease",
+        ["--earth-accent" as string]: C.terracotta,
+        ["--earth-charcoal" as string]: C.charcoal,
+        ["--earth-row-hover" as string]: C.rowHover,
+        ["--earth-toolbar-btn-bg" as string]: C.toolbarBtnBg,
+        ["--earth-toolbar-btn-border" as string]: C.toolbarBtnBorder,
+        ["--earth-toolbar-btn-hover-bg" as string]: C.toolbarBtnHoverBg,
+        ["--earth-toolbar-btn-hover-border" as string]: C.toolbarBtnHoverBorder,
       }}
     >
       <style>{globalStyles}</style>
       <GrainFilter />
-      <GrainOverlay />
+      <GrainOverlay opacity={C.overlayOpacity} />
 
-      {/* Toolbar */}
+      {/* Header concepts */}
       <div
         style={{
-          padding: "12px 20px",
+          padding: 0,
           borderBottom: `1px solid ${C.ruleLight}`,
-          background: "rgba(244,245,247,0.92)",
-          backdropFilter: "blur(8px)",
+          background: C.toolbarBg,
+          backdropFilter: "blur(10px)",
           zIndex: 30,
           position: "relative",
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
         }}
       >
         <div
           style={{
             display: "flex",
-            alignItems: "center",
+            alignItems: "stretch",
             justifyContent: "space-between",
-            gap: 12,
+            gap: 14,
+            border: `1px solid ${C.ruleLight}`,
+            background:
+              themeMode === "dark"
+                ? "linear-gradient(90deg, rgba(230,237,243,0.04), rgba(88,166,255,0.1), rgba(230,237,243,0.04))"
+                : "linear-gradient(90deg, rgba(0,82,204,0.03), rgba(255,255,255,0.92), rgba(0,82,204,0.05))",
+            borderRadius: 14,
+            padding: "12px 14px",
           }}
         >
-          <GanttToolbar
-            className="flex-wrap gap-2"
-            buttonClass="earth-toolbar-btn"
-            title="C&C Gantt"
-            titleClass="text-xl tracking-tight earth-title"
-            accentColor="#0052CC"
-          />
           <div
             style={{
               display: "flex",
-              alignItems: "center",
-              gap: 4,
-              padding: 3,
-              borderRadius: 999,
-              border: `1px solid ${C.ruleLight}`,
-              background: "rgba(255,255,255,0.9)",
-              flexShrink: 0,
+              flexDirection: "column",
+              gap: 9,
+              minWidth: 0,
+              flex: 1,
             }}
           >
-            {(["week", "month", "year"] as const).map((mode) => {
-              const active = viewMode === mode;
-              return (
-                <button
-                  key={mode}
-                  onClick={() => setViewMode(mode)}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                justifyContent: "space-between",
+                gap: 12,
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "baseline",
+                  gap: 10,
+                  minWidth: 0,
+                }}
+              >
+                <strong
                   style={{
-                    border: "none",
-                    borderRadius: 999,
-                    padding: "3px 8px",
-                    fontSize: 10,
-                    fontWeight: 600,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.04em",
-                    cursor: "pointer",
-                    color: active ? C.ivory : C.charcoal,
-                    background: active ? C.terracotta : "transparent",
-                    opacity: active ? 1 : 0.65,
-                    transition: "all 0.15s ease",
+                    fontSize: 18,
+                    letterSpacing: "-0.02em",
+                    whiteSpace: "nowrap",
                   }}
-                  title={`View by ${mode}`}
                 >
-                  {mode}
+                  C&C Gantt
+                </strong>
+              </div>
+              <span
+                style={{
+                  fontSize: 10,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  opacity: 0.55,
+                  padding: "3px 8px",
+                  borderRadius: 999,
+                  border: `1px solid ${C.ruleLight}`,
+                  background:
+                    themeMode === "dark"
+                      ? "rgba(13,17,23,0.5)"
+                      : "rgba(255,255,255,0.72)",
+                }}
+              >
+                Command Strip
+              </span>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: `1px solid ${C.ruleLight}`,
+                background:
+                  themeMode === "dark"
+                    ? "rgba(13,17,23,0.58)"
+                    : "rgba(255,255,255,0.78)",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 10,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  opacity: 0.55,
+                  flexShrink: 0,
+                }}
+              >
+                Actions
+              </span>
+              <GanttToolbar
+                className="flex-wrap gap-1.5"
+                buttonClass="earth-toolbar-btn earth-toolbar-btn-minimal"
+                accentColor={C.terracotta}
+                dividerClass="earth-divider-minimal"
+              />
+              <div
+                style={{
+                  width: 1,
+                  height: 18,
+                  background: C.ruleLight,
+                  flexShrink: 0,
+                }}
+              />
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  flexWrap: "wrap",
+                  minWidth: 0,
+                }}
+              >
+                {(["day", "week", "month", "year"] as TimelineMode[]).map(
+                  (mode) => {
+                    const active = viewMode === mode;
+                    return (
+                      <button
+                        key={mode}
+                        onClick={() => applyMode(mode)}
+                        style={{
+                          border: `1px solid ${active ? C.terracotta : C.ruleLight}`,
+                          background: active
+                            ? themeMode === "dark"
+                              ? "rgba(88,166,255,0.24)"
+                              : "rgba(0,82,204,0.11)"
+                            : "transparent",
+                          color: C.charcoal,
+                          borderRadius: 8,
+                          padding: "4px 10px",
+                          fontSize: 10,
+                          letterSpacing: "0.05em",
+                          textTransform: "uppercase",
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          opacity: active ? 1 : 0.75,
+                          transition: "all 0.15s ease",
+                        }}
+                        title={`View by ${mode}`}
+                      >
+                        {mode}
+                      </button>
+                    );
+                  },
+                )}
+                <DateRangePicker
+                  value={selectedRange}
+                  onChange={handleRangeChange}
+                  isDark={themeMode === "dark"}
+                  buttonStyle={{
+                    border: `1px solid ${C.ruleLight}`,
+                    background:
+                      themeMode === "dark"
+                        ? "rgba(13,17,23,0.7)"
+                        : "rgba(255,255,255,0.92)",
+                    color: C.charcoal,
+                  }}
+                  popoverStyle={{
+                    border: `1px solid ${C.ruleLight}`,
+                    background:
+                      themeMode === "dark"
+                        ? "rgba(13,17,23,0.98)"
+                        : "rgba(255,255,255,0.98)",
+                    boxShadow:
+                      themeMode === "dark"
+                        ? "0 14px 36px rgba(0,0,0,0.5)"
+                        : "0 14px 30px rgba(9,30,66,0.18)",
+                  }}
+                />
+                <button
+                  onClick={handleResetToTaskWindow}
+                  style={{
+                    border: `1px solid ${C.ruleLight}`,
+                    background: "transparent",
+                    color: C.charcoal,
+                    borderRadius: 8,
+                    width: 30,
+                    height: 30,
+                    cursor: "pointer",
+                    opacity: 0.8,
+                    transition: "all 0.15s ease",
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                  title="Reset chart position to task timeline"
+                  aria-label="Reset chart position to task timeline"
+                >
+                  <LocateFixed size={12} />
                 </button>
-              );
+              </div>
+            </div>
+          </div>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "flex-start",
+              width: "60px",
+              gap: 8,
+              paddingLeft: 12,
+              borderLeft: `1px solid ${C.ruleLight}`,
+            }}
+          >
+            {renderThemeControl({
+              containerBg:
+                themeMode === "dark"
+                  ? "rgba(13,17,23,0.7)"
+                  : "rgba(255,255,255,0.86)",
+              containerBorder: C.ruleLight,
+              inactiveColor: C.charcoal,
+              themeActiveBg: "rgba(88,166,255,0.28)",
             })}
           </div>
         </div>
@@ -770,7 +1399,8 @@ export default function GanttEarth() {
                       boxShadow: isTaskDragged
                         ? "inset 0 0 0 1px rgba(0,82,204,0.25)"
                         : undefined,
-                      transition: "background-color 0.1s ease, box-shadow 0.1s ease",
+                      transition:
+                        "background-color 0.1s ease, box-shadow 0.1s ease",
                     }}
                   >
                     <button
@@ -804,7 +1434,9 @@ export default function GanttEarth() {
                       <ChevronDown
                         size={12}
                         style={{
-                          transform: isCollapsed ? "rotate(-90deg)" : "rotate(0deg)",
+                          transform: isCollapsed
+                            ? "rotate(-90deg)"
+                            : "rotate(0deg)",
                           transition: "transform 0.16s ease",
                         }}
                       />
@@ -841,7 +1473,7 @@ export default function GanttEarth() {
                           fontWeight: 500,
                           fontSize: 16,
                           color: C.charcoal,
-                          background: "rgba(255,255,255,0.9)",
+                          background: C.editorBg,
                           outline: "none",
                         }}
                       />
@@ -913,7 +1545,7 @@ export default function GanttEarth() {
                               top: 28,
                               right: 0,
                               zIndex: 45,
-                              background: C.ivory,
+                              background: C.cream,
                               border: `1px solid ${C.ruleLight}`,
                               borderRadius: 10,
                               padding: 8,
@@ -975,8 +1607,13 @@ export default function GanttEarth() {
                             >
                               <Pipette
                                 size={10}
-                                color={C.ivory}
-                                style={{ filter: "drop-shadow(0 0 1px rgba(0,0,0,0.35))" }}
+                                color={
+                                  themeMode === "dark" ? C.charcoal : C.ivory
+                                }
+                                style={{
+                                  filter:
+                                    "drop-shadow(0 0 1px rgba(0,0,0,0.35))",
+                                }}
                               />
                               <input
                                 type="color"
@@ -1067,130 +1704,136 @@ export default function GanttEarth() {
                   {/* Subtask names */}
                   {task.subtasks.map((sub) => {
                     const isSubtaskDragged =
-                      isDragging && dragTaskId === task.id && dragSubtaskId === sub.id;
+                      isDragging &&
+                      dragTaskId === task.id &&
+                      dragSubtaskId === sub.id;
                     return (
-                    <div
-                      key={sub.id}
-                      className="earth-row earth-subrow"
-                      onPointerDown={(e) =>
-                        handleLeftRowPointerDown(e, task.id, sub.id)
-                      }
-                      onClick={(e) =>
-                        handleRowClick(e, task.id, sub.name, sub.id)
-                      }
-                      style={{
-                        height: SUBTASK_ROW_H,
-                        display: "flex",
-                        alignItems: "center",
-                        paddingLeft: 40,
-                        paddingRight: 20,
-                        borderBottom: `1px solid ${C.ruleLight}`,
-                        cursor: isDragging ? "grabbing" : "grab",
-                        background: isSubtaskDragged
-                          ? "rgba(0,82,204,0.08)"
-                          : undefined,
-                        boxShadow: isSubtaskDragged
-                          ? "inset 0 0 0 1px rgba(0,82,204,0.2)"
-                          : undefined,
-                        transition:
-                          "background-color 0.1s ease, box-shadow 0.1s ease",
-                      }}
-                    >
-                      {editingName?.taskId === task.id &&
-                      editingName.subtaskId === sub.id ? (
-                        <input
-                          autoFocus
-                          value={editingName.value}
-                          onChange={(e) => {
-                            const nextValue = e.currentTarget.value;
-                            setEditingName((prev) =>
-                              prev
-                                ? {
-                                    ...prev,
-                                    value: nextValue,
-                                  }
-                                : prev,
-                            );
-                          }}
-                          onBlur={commitNameEdit}
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter") {
-                              commitNameEdit();
-                            } else if (e.key === "Escape") {
-                              cancelNameEdit();
-                            }
-                          }}
-                          style={{
-                            width: leftPanelWidth - 112,
-                            border: `1px solid ${C.ruleLight}`,
-                            borderRadius: 6,
-                            padding: "3px 8px",
-                            fontSize: 14,
-                            color: C.charcoal,
-                            background: "rgba(255,255,255,0.9)",
-                            outline: "none",
-                          }}
-                        />
-                      ) : (
-                        <span
-                          style={{
-                            fontSize: 14,
-                            color: C.charcoal,
-                            opacity: 0.55,
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            maxWidth: leftPanelWidth - 112,
-                          }}
-                        >
-                          {sub.name}
-                        </span>
-                      )}
                       <div
+                        key={sub.id}
+                        className="earth-row earth-subrow"
+                        onPointerDown={(e) =>
+                          handleLeftRowPointerDown(e, task.id, sub.id)
+                        }
+                        onClick={(e) =>
+                          handleRowClick(e, task.id, sub.name, sub.id)
+                        }
                         style={{
-                          marginLeft: "auto",
+                          height: SUBTASK_ROW_H,
                           display: "flex",
                           alignItems: "center",
-                          gap: 6,
+                          paddingLeft: 40,
+                          paddingRight: 20,
+                          borderBottom: `1px solid ${C.ruleLight}`,
+                          cursor: isDragging ? "grabbing" : "grab",
+                          background: isSubtaskDragged
+                            ? "rgba(0,82,204,0.08)"
+                            : undefined,
+                          boxShadow: isSubtaskDragged
+                            ? "inset 0 0 0 1px rgba(0,82,204,0.2)"
+                            : undefined,
+                          transition:
+                            "background-color 0.1s ease, box-shadow 0.1s ease",
                         }}
                       >
-                        <button
-                          onClick={() =>
-                            deleteSubtask({ taskId: task.id, subtaskId: sub.id })
-                          }
+                        {editingName?.taskId === task.id &&
+                        editingName.subtaskId === sub.id ? (
+                          <input
+                            autoFocus
+                            value={editingName.value}
+                            onChange={(e) => {
+                              const nextValue = e.currentTarget.value;
+                              setEditingName((prev) =>
+                                prev
+                                  ? {
+                                      ...prev,
+                                      value: nextValue,
+                                    }
+                                  : prev,
+                              );
+                            }}
+                            onBlur={commitNameEdit}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") {
+                                commitNameEdit();
+                              } else if (e.key === "Escape") {
+                                cancelNameEdit();
+                              }
+                            }}
+                            style={{
+                              width: leftPanelWidth - 112,
+                              border: `1px solid ${C.ruleLight}`,
+                              borderRadius: 6,
+                              padding: "3px 8px",
+                              fontSize: 14,
+                              color: C.charcoal,
+                              background: C.editorBg,
+                              outline: "none",
+                            }}
+                          />
+                        ) : (
+                          <span
+                            style={{
+                              fontSize: 14,
+                              color: C.charcoal,
+                              opacity: 0.55,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              maxWidth: leftPanelWidth - 112,
+                            }}
+                          >
+                            {sub.name}
+                          </span>
+                        )}
+                        <div
                           style={{
-                            flexShrink: 0,
-                            width: 20,
-                            height: 20,
-                            borderRadius: 999,
-                            border: `1px solid ${C.ruleLight}`,
-                            background: "transparent",
-                            color: C.charcoal,
-                            fontSize: 13,
-                            lineHeight: "18px",
-                            cursor: "pointer",
+                            marginLeft: "auto",
                             display: "flex",
                             alignItems: "center",
-                            justifyContent: "center",
-                            transition: "all 0.15s ease",
-                            opacity: 0.28,
+                            gap: 6,
                           }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.opacity = "0.95";
-                            e.currentTarget.style.background =
-                              "rgba(9,30,66,0.08)";
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.opacity = "0.28";
-                            e.currentTarget.style.background = "transparent";
-                          }}
-                          title="Remove subtask"
                         >
-                          <Trash2 size={12} />
-                        </button>
+                          <button
+                            onClick={() =>
+                              deleteSubtask({
+                                taskId: task.id,
+                                subtaskId: sub.id,
+                              })
+                            }
+                            style={{
+                              flexShrink: 0,
+                              width: 20,
+                              height: 20,
+                              borderRadius: 999,
+                              border: `1px solid ${C.ruleLight}`,
+                              background: "transparent",
+                              color: C.charcoal,
+                              fontSize: 13,
+                              lineHeight: "18px",
+                              cursor: "pointer",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              transition: "all 0.15s ease",
+                              opacity: 0.28,
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.opacity = "0.95";
+                              e.currentTarget.style.background =
+                                "rgba(9,30,66,0.08)";
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.opacity = "0.28";
+                              e.currentTarget.style.background = "transparent";
+                            }}
+                            title="Remove subtask"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
                       </div>
-                    </div>
-                  )})}
+                    );
+                  })}
                 </div>
               );
             })}
@@ -1225,16 +1868,36 @@ export default function GanttEarth() {
             flex: 1,
             overflow: "auto",
             position: "relative",
-            cursor: isDragging ? "grabbing" : "default",
+            cursor: isDragging || draggingMarkerId ? "grabbing" : "default",
           }}
         >
           <div
+            onDoubleClick={handleChartDoubleClick}
             style={{
               width: totalWidth,
               height: chartHeight,
               position: "relative",
             }}
           >
+            {/* Vertical separators */}
+            {weekendColumns.map((col, i) => (
+              <div
+                key={`weekend-${i}`}
+                style={{
+                  position: "absolute",
+                  left: col.x,
+                  top: 0,
+                  width: col.width,
+                  height: chartHeight,
+                  background:
+                    themeMode === "dark"
+                      ? "rgba(230,237,243,0.035)"
+                      : "rgba(9,30,66,0.055)",
+                  pointerEvents: "none",
+                }}
+              />
+            ))}
+
             {/* Vertical separators */}
             {gridColumns.map((col, i) => (
               <div
@@ -1312,6 +1975,7 @@ export default function GanttEarth() {
                       childTop={
                         y + TASK_ROW_H + si * SUBTASK_ROW_H + SUBTASK_ROW_H / 2
                       }
+                      strokeColor={C.charcoal}
                     />
                   );
                 });
@@ -1320,16 +1984,24 @@ export default function GanttEarth() {
 
             {/* Markers */}
             {markers.map((marker) => {
-              const x = dateToX(marker.date);
+              const x =
+                draggingMarkerId === marker.id && draggingMarkerX !== null
+                  ? draggingMarkerX
+                  : dateToX(marker.date);
               return (
                 <div
                   key={marker.id}
+                  data-marker-id={marker.id}
+                  onPointerDown={(e) => handleMarkerPointerDown(e, marker)}
+                  onDoubleClick={(e) => handleMarkerDoubleClick(e, marker)}
                   style={{
                     position: "absolute",
                     left: x,
                     top: 0,
                     height: chartHeight,
                     zIndex: 8,
+                    cursor:
+                      draggingMarkerId === marker.id ? "grabbing" : "grab",
                   }}
                 >
                   <div
@@ -1356,8 +2028,208 @@ export default function GanttEarth() {
                       letterSpacing: "0.02em",
                     }}
                   >
-                    {marker.label}
+                    {editingMarker?.markerId === marker.id ? (
+                      <input
+                        autoFocus
+                        value={editingMarker.value}
+                        onChange={(e) => {
+                          const nextValue = e.currentTarget.value;
+                          setEditingMarker((prev) =>
+                            prev
+                              ? {
+                                  ...prev,
+                                  value: nextValue,
+                                }
+                              : prev,
+                          );
+                        }}
+                        onBlur={commitMarkerEdit}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            commitMarkerEdit();
+                          } else if (e.key === "Escape") {
+                            cancelMarkerEdit();
+                          }
+                        }}
+                        style={{
+                          border: `1px solid ${marker.color || C.terracotta}`,
+                          borderRadius: 4,
+                          padding: "2px 6px",
+                          fontSize: 10,
+                          fontWeight: 600,
+                          color: marker.color || C.terracotta,
+                          background: C.editorBg,
+                          outline: "none",
+                          minWidth: 84,
+                        }}
+                      />
+                    ) : (
+                      marker.label
+                    )}
                   </div>
+                  <button
+                    data-marker-actions-trigger
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setOpenMarkerMenuId((prev) =>
+                        prev === marker.id ? null : marker.id,
+                      );
+                    }}
+                    style={{
+                      position: "absolute",
+                      left: 10,
+                      top: 18,
+                      width: 18,
+                      height: 18,
+                      borderRadius: 999,
+                      border: `1px solid ${C.ruleLight}`,
+                      background: C.editorBg,
+                      color: marker.color || C.terracotta,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      opacity: openMarkerMenuId === marker.id ? 1 : 0.7,
+                    }}
+                    title="Marker options"
+                    aria-label="Marker options"
+                  >
+                    <Pipette size={11} />
+                  </button>
+                  {openMarkerMenuId === marker.id && (
+                    <div
+                      data-marker-actions-menu
+                      onPointerDown={(e) => e.stopPropagation()}
+                      style={{
+                        position: "absolute",
+                        left: 32,
+                        top: 16,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: 8,
+                        borderRadius: 10,
+                        border: `1px solid ${C.ruleLight}`,
+                        background: C.cream,
+                        boxShadow:
+                          "0 8px 18px rgba(9,30,66,0.12), 0 1px 2px rgba(9,30,66,0.08)",
+                      }}
+                    >
+                      {TASK_PRESET_COLORS.map((color) => {
+                        const isActive =
+                          (marker.color || C.terracotta).toLowerCase() ===
+                          color.toLowerCase();
+                        return (
+                          <button
+                            key={`${marker.id}-${color}`}
+                            onClick={(e) => {
+                              e.preventDefault();
+                              e.stopPropagation();
+                              handleMarkerColorChange(marker.id, color);
+                              setOpenMarkerMenuId(null);
+                            }}
+                            style={{
+                              flexShrink: 0,
+                              width: 16,
+                              height: 16,
+                              borderRadius: 999,
+                              border: isActive
+                                ? "1px solid rgba(9,30,66,0.35)"
+                                : `1px solid ${C.ruleLight}`,
+                              background: color,
+                              cursor: "pointer",
+                              padding: 0,
+                              boxShadow: isActive
+                                ? "0 0 0 1px rgba(255,255,255,0.8) inset"
+                                : "none",
+                            }}
+                            title={`Set marker color ${color}`}
+                            aria-label={`Set marker color ${color}`}
+                          />
+                        );
+                      })}
+                      <label
+                        style={{
+                          width: 18,
+                          height: 18,
+                          borderRadius: 999,
+                          border: `1px solid ${C.ruleLight}`,
+                          cursor: "pointer",
+                          position: "relative",
+                          overflow: "hidden",
+                          background: marker.color || C.terracotta,
+                          boxShadow: "inset 0 0 0 1px rgba(255,255,255,0.45)",
+                          flexShrink: 0,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                        title="Custom color"
+                      >
+                        <Pipette
+                          size={10}
+                          color={themeMode === "dark" ? C.charcoal : C.ivory}
+                          style={{
+                            filter: "drop-shadow(0 0 1px rgba(0,0,0,0.35))",
+                          }}
+                        />
+                        <input
+                          type="color"
+                          value={marker.color || C.terracotta}
+                          onChange={(e) =>
+                            handleMarkerColorChange(
+                              marker.id,
+                              e.currentTarget.value,
+                            )
+                          }
+                          style={{
+                            position: "absolute",
+                            inset: 0,
+                            opacity: 0,
+                            cursor: "pointer",
+                          }}
+                        />
+                      </label>
+                      <div
+                        style={{
+                          width: 1,
+                          height: 16,
+                          background: C.ruleLight,
+                          marginInline: 2,
+                        }}
+                      />
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleRemoveMarker(marker.id);
+                        }}
+                        style={{
+                          width: 18,
+                          height: 18,
+                          borderRadius: 999,
+                          border: `1px solid ${C.ruleLight}`,
+                          background: "transparent",
+                          color: C.charcoal,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          cursor: "pointer",
+                        }}
+                        title="Delete marker"
+                        aria-label="Delete marker"
+                      >
+                        <Trash2 size={10} />
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -1493,7 +2365,9 @@ export default function GanttEarth() {
                           display: "flex",
                           alignItems: "center",
                           opacity: isSubtaskDragged ? 0.75 : 1,
-                          transform: isSubtaskDragged ? "scale(1.03)" : undefined,
+                          transform: isSubtaskDragged
+                            ? "scale(1.03)"
+                            : undefined,
                           outline: isSubtaskDragged
                             ? "2px solid rgba(0,82,204,0.35)"
                             : undefined,

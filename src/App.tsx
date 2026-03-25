@@ -1,25 +1,25 @@
-import { lazy, Suspense } from 'react'
-import { Routes, Route } from 'react-router-dom'
+import { lazy, Suspense } from "react";
+import { Routes, Route } from "react-router-dom";
 
-const GanttEarth = lazy(() => import('./designs/gantt-2/GanttEarth'))
+const GanttEarth = lazy(() => import("./designs/gantt-2/GanttEarth"));
 
 function Loading() {
   return (
     <div
       style={{
-        height: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: '#F4F5F7',
-        color: '#5E6C84',
+        height: "100vh",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        background: "var(--app-bg, #F4F5F7)",
+        color: "var(--app-text, #5E6C84)",
         fontSize: 14,
-        letterSpacing: '0.02em',
+        letterSpacing: "0.02em",
       }}
     >
       Loading...
     </div>
-  )
+  );
 }
 
 export default function App() {
@@ -29,5 +29,5 @@ export default function App() {
         <Route path="*" element={<GanttEarth />} />
       </Routes>
     </Suspense>
-  )
+  );
 }

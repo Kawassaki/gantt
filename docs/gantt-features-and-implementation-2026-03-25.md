@@ -293,6 +293,24 @@ Implementation:
 - Design-specific visual rules in `GanttEarth.tsx` via local style block.
 - Icons from `lucide-react`.
 
+## 17) Light/Dark Theme Toggle
+
+User-visible behavior:
+
+- Toggle between `Light` and `Dark` modes from the top header.
+- Theme preference is persisted and restored across reloads.
+- Main surfaces, toolbar chrome, row hovers, and editor inputs adapt to the active theme.
+
+Implementation:
+
+- Theme state (`light | dark`) is managed in `GanttEarth.tsx`.
+- Preference is persisted to local storage key `gantt-theme-mode`.
+- Root-level app CSS variables are updated at runtime:
+  - `--app-bg`
+  - `--app-text`
+- Local component visual tokens are theme-driven via `THEME_COLORS`.
+- Toolbar now includes a theme toggle button (moon/sun icon) beside view-mode buttons.
+
 ## Known Implementation Notes
 
 - `viewMode` currently changes timeline scale/headers and is stored in timeline config.
