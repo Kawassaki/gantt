@@ -1,0 +1,20 @@
+{
+  "root": [
+    "./src/app.tsx",
+    "./src/main.tsx",
+    "./src/components/ui/date-range-picker.tsx",
+    "./src/core/gantttoolbar.tsx",
+    "./src/core/actions.ts",
+    "./src/core/importexport.ts",
+    "./src/core/sampledata.ts",
+    "./src/core/store.ts",
+    "./src/core/types.ts",
+    "./src/core/undohelper.ts",
+    "./src/core/useganttdrag.ts",
+    "./src/core/usekeyboardshortcuts.ts",
+    "./src/core/usetimeline.ts",
+    "./src/designs/gantt-2/ganttearth.tsx",
+    "./vite-env.d.ts"
+  ],
+  "version": "6.0.2"
+}
