@@ -2,6 +2,7 @@ import { addDays, isValid, parseISO } from "date-fns";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
   ChevronDown,
+  Laptop,
   LocateFixed,
   Moon,
   Pipette,
@@ -52,6 +53,7 @@ import { markersAtom, tasksAtom } from "../features/gantt/state/store";
 import type {
   Marker,
   ThemeMode,
+  ThemePreference,
   TimelineViewMode,
 } from "../features/gantt/types";
 import { darkenHex } from "../features/gantt/utils/colors";
@@ -161,15 +163,22 @@ const globalStyles = `
 }
 `;
 
-export default function GanttChart() {
-  const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+export default function GanttEarth() {
+  const [themePreference, setThemePreference] = useState<ThemePreference>(() => {
     if (typeof window === "undefined") return "light";
     const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-    if (stored === "light" || stored === "dark") return stored;
+    if (stored === "light" || stored === "dark" || stored === "system")
+      return stored;
+    return "light";
+  });
+  const [systemThemeMode, setSystemThemeMode] = useState<ThemeMode>(() => {
+    if (typeof window === "undefined") return "light";
     return window.matchMedia("(prefers-color-scheme: dark)").matches
       ? "dark"
       : "light";
   });
+  const themeMode: ThemeMode =
+    themePreference === "system" ? systemThemeMode : themePreference;
   const C = THEME_COLORS[themeMode];
   const tasks = useAtomValue(tasksAtom);
   const markers = useAtomValue(markersAtom);
@@ -258,8 +267,8 @@ export default function GanttChart() {
     value: string;
   } | null>(null);
   const [openMarkerMenuId, setOpenMarkerMenuId] = useState<string | null>(null);
-  const toggleTheme = useCallback(() => {
-    setThemeMode((prev) => (prev === "light" ? "dark" : "light"));
+  const setTheme = useCallback((preference: ThemePreference) => {
+    setThemePreference(preference);
   }, []);
 
   const selectedRange = useMemo<DateRange | undefined>(
@@ -516,12 +525,22 @@ export default function GanttChart() {
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(THEME_STORAGE_KEY, themeMode);
+    const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
+    const onThemeChange = (event: MediaQueryListEvent) => {
+      setSystemThemeMode(event.matches ? "dark" : "light");
+    };
+    setSystemThemeMode(mediaQuery.matches ? "dark" : "light");
+    mediaQuery.addEventListener("change", onThemeChange);
+    return () => mediaQuery.removeEventListener("change", onThemeChange);
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, themePreference);
     document.documentElement.dataset.theme = themeMode;
     document.documentElement.style.setProperty("color-scheme", themeMode);
     document.documentElement.style.setProperty("--app-bg", C.appBg);
     document.documentElement.style.setProperty("--app-text", C.charcoal);
-  }, [C.appBg, C.charcoal, themeMode]);
+  }, [C.appBg, C.charcoal, themeMode, themePreference]);
 
   useEffect(() => {
     if (!openColorTaskId && !openMarkerMenuId) return;
@@ -738,6 +757,7 @@ export default function GanttChart() {
         display: "flex",
         alignItems: "center",
         padding: 4,
+        gap: 4,
         borderRadius: 999,
         border: `1px solid ${containerBorder}`,
         background: containerBg,
@@ -746,24 +766,64 @@ export default function GanttChart() {
       }}
     >
       <button
-        onClick={toggleTheme}
+        onClick={() => setTheme("light")}
         style={{
           border: "none",
           borderRadius: 999,
-          width: "100%",
+          width: 26,
           height: 26,
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "center",
           cursor: "pointer",
           color: inactiveColor,
-          background: themeMode === "dark" ? themeActiveBg : "transparent",
+          background: themePreference === "light" ? themeActiveBg : "transparent",
           transition: "all 0.15s ease",
         }}
-        title={`Switch to ${themeMode === "light" ? "dark" : "light"} mode`}
-        aria-label={`Switch to ${themeMode === "light" ? "dark" : "light"} mode`}
+        title="Use light mode"
+        aria-label="Use light mode"
       >
-        {themeMode === "light" ? <Moon size={14} /> : <Sun size={14} />}
+        <Sun size={14} />
+      </button>
+      <button
+        onClick={() => setTheme("dark")}
+        style={{
+          border: "none",
+          borderRadius: 999,
+          width: 26,
+          height: 26,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+          color: inactiveColor,
+          background: themePreference === "dark" ? themeActiveBg : "transparent",
+          transition: "all 0.15s ease",
+        }}
+        title="Use dark mode"
+        aria-label="Use dark mode"
+      >
+        <Moon size={14} />
+      </button>
+      <button
+        onClick={() => setTheme("system")}
+        style={{
+          border: "none",
+          borderRadius: 999,
+          width: 26,
+          height: 26,
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+          color: inactiveColor,
+          background: themePreference === "system" ? themeActiveBg : "transparent",
+          transition: "all 0.15s ease",
+        }}
+        title="Use system theme preference"
+        aria-label="Use system theme preference"
+      >
+        <Laptop size={14} />
       </button>
     </div>
   );
@@ -1006,8 +1066,8 @@ export default function GanttChart() {
             style={{
               display: "flex",
               flexDirection: "column",
-              justifyContent: "flex-start",
-              width: "60px",
+              justifyContent: "center",
+              width: "116px",
               gap: 8,
               paddingLeft: 12,
               borderLeft: `1px solid ${C.ruleLight}`,
