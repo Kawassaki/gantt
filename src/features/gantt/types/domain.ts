@@ -35,7 +35,26 @@ export interface TimelineConfig {
   customDateRange?: boolean;
 }
 
+export interface TimelineTab {
+  id: string;
+  title: string;
+  color: string;
+}
+
+export interface TimelineTabData {
+  tasks: Task[];
+  markers: Marker[];
+  timelineConfig: TimelineConfig;
+}
+
 export interface GanttExportPayload {
+  version: number;
+  tabs: TimelineTab[];
+  activeTabId: string;
+  timelineDataByTab: Record<string, TimelineTabData>;
+}
+
+export interface LegacyGanttExportPayload {
   version: number;
   tasks: Task[];
   markers: Marker[];

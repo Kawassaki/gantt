@@ -1,6 +1,12 @@
 import { addDays, addMonths, format } from "date-fns";
 
-import type { Marker, Task, TimelineConfig } from "../types";
+import type {
+  Marker,
+  Task,
+  TimelineConfig,
+  TimelineTab,
+  TimelineTabData,
+} from "../types";
 
 const today = new Date();
 const baseDate = new Date(
@@ -235,4 +241,51 @@ export const defaultTimelineConfig: TimelineConfig = {
   zoomLevel: 40,
   viewMode: "week",
   customDateRange: false,
+};
+
+export const INITIAL_TIMELINE_TAB_ID = "tab-main";
+
+export const defaultTimelineTabs: TimelineTab[] = [
+  {
+    id: INITIAL_TIMELINE_TAB_ID,
+    title: "Main Timeline",
+    color: "#0052CC",
+  },
+];
+
+export const createFreshTimelineTabData = (): TimelineTabData => {
+  const freshToday = new Date();
+  const startDate = format(freshToday, "yyyy-MM-dd");
+  const taskEndDate = format(addDays(freshToday, 5), "yyyy-MM-dd");
+  const timelineEndDate = format(addMonths(freshToday, 1), "yyyy-MM-dd");
+
+  return {
+    tasks: [
+      {
+        id: "t-starter",
+        name: "Starter Task",
+        startDate,
+        endDate: taskEndDate,
+        color: "#3b82f6",
+        subtasks: [],
+        progress: 0,
+      },
+    ],
+    markers: [],
+    timelineConfig: {
+      startDate,
+      endDate: timelineEndDate,
+      zoomLevel: 40,
+      viewMode: "week",
+      customDateRange: false,
+    },
+  };
+};
+
+export const defaultTimelineDataByTab: Record<string, TimelineTabData> = {
+  [INITIAL_TIMELINE_TAB_ID]: {
+    tasks: defaultTasks,
+    markers: defaultMarkers,
+    timelineConfig: defaultTimelineConfig,
+  },
 };

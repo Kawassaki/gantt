@@ -258,7 +258,8 @@ export const useGanttDrag = (
     subtaskRowH: 36,
   },
   chartBodyRef?: React.RefObject<HTMLElement | null>,
-  displayTasks?: Task[]
+  displayTasks?: Task[],
+  topOffset = 0
 ) => {
   const [tasks, setTasks] = useAtom(tasksAtom);
   const [dragState, setDragState] = useState<{
@@ -396,7 +397,7 @@ export const useGanttDrag = (
       ) {
         const chartRect = chartBodyRef.current.getBoundingClientRect();
         const scrollTop = chartBodyRef.current.scrollTop;
-        const relativeY = event.clientY - chartRect.top + scrollTop;
+        const relativeY = event.clientY - chartRect.top + scrollTop - topOffset;
         const layoutTasks = displayTasks ?? tasks;
 
         const target = computeDropTarget(
@@ -407,7 +408,14 @@ export const useGanttDrag = (
           rowConfig.taskRowH,
           rowConfig.subtaskRowH
         );
-        setDropTarget(target);
+        if (!target) {
+          setDropTarget(null);
+        } else {
+          setDropTarget({
+            indicatorY: target.indicatorY + topOffset,
+            apply: target.apply,
+          });
+        }
       } else if (dragState.mode === "move") {
         setDropTarget(null);
       }
@@ -421,6 +429,7 @@ export const useGanttDrag = (
       rowConfig.subtaskRowH,
       rowConfig.taskRowH,
       setTasks,
+      topOffset,
       tasks,
     ]
   );

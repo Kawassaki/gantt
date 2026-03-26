@@ -34,9 +34,11 @@ describe("gantt constants", () => {
   });
 
   it("exposes storage keys and theme constants", () => {
-    expect(STORAGE_KEYS.tasks).toBe("gantt-v1-tasks");
-    expect(STORAGE_KEYS.markers).toBe("gantt-v1-markers");
-    expect(STORAGE_KEYS.timelineConfig).toBe("gantt-v1-timeline");
+    expect(STORAGE_KEYS.tabs).toBe("gantt-v2-tabs");
+    expect(STORAGE_KEYS.activeTabId).toBe("gantt-v2-active-tab-id");
+    expect(STORAGE_KEYS.timelineDataByTab).toBe(
+      "gantt-v2-timeline-data-by-tab"
+    );
     expect(THEME_STORAGE_KEY).toBe(STORAGE_KEYS.themeMode);
     expect(THEME_COLORS.light.terracotta).toBe("#0052CC");
     expect(THEME_COLORS.dark.terracotta).toBe("#58A6FF");

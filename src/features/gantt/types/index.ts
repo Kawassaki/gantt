@@ -5,7 +5,10 @@ export type {
   Marker,
   TimelineViewMode,
   TimelineConfig,
+  TimelineTab,
+  TimelineTabData,
   GanttExportPayload,
+  LegacyGanttExportPayload,
   DragMode,
   DragState,
 } from "./domain";
