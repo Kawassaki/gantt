@@ -1,6 +1,7 @@
-import { addDays, isValid, parseISO } from "date-fns";
+import { addDays, parseISO } from "date-fns";
 import { useAtomValue, useSetAtom } from "jotai";
 import {
+  Check,
   ChevronDown,
   Laptop,
   LocateFixed,
@@ -9,11 +10,11 @@ import {
   Plus,
   Sun,
   Trash2,
+  X,
 } from "lucide-react";
 import { useRef, useCallback, useMemo, useState, useEffect } from "react";
 import type { DateRange } from "react-day-picker";
 
-import { DateRangePicker } from "../components/ui/date-range-picker";
 import { GanttToolbar } from "../features/gantt/components";
 import {
   FlagPennant,
@@ -45,11 +46,21 @@ import {
   removeMarkerAtom,
   deleteTaskAtom,
   deleteSubtaskAtom,
+  deleteTimelineTabAtom,
+  createTimelineTabAtom,
+  recolorTimelineTabAtom,
+  renameTimelineTabAtom,
+  reorderTimelineTabsAtom,
   updateTaskAtom,
   updateSubtaskAtom,
   updateMarkerAtom,
 } from "../features/gantt/state/actions";
-import { markersAtom, tasksAtom } from "../features/gantt/state/store";
+import {
+  activeTabIdAtom,
+  markersAtom,
+  tabsAtom,
+  tasksAtom,
+} from "../features/gantt/state/store";
 import type {
   Marker,
   ThemeMode,
@@ -62,21 +73,59 @@ import {
   toConfigDate,
 } from "../features/gantt/utils/dateConfig";
 import { rowHeight, totalHeight } from "../features/gantt/utils/layoutMetrics";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../shared/components/alert-dialog";
+import { DateRangePicker } from "../shared/components/date-range-picker";
 
 const globalStyles = `
 .earth-bar {
-  transition: transform 0.18s cubic-bezier(.4,0,.2,1), box-shadow 0.18s ease;
+  transition: box-shadow 0.18s ease;
 }
 .earth-bar:hover {
-  transform: scale(1.02);
   box-shadow: 0 4px 14px rgba(9,30,66,0.2) !important;
 }
 .earth-subtask-bar {
-  transition: transform 0.18s cubic-bezier(.4,0,.2,1), box-shadow 0.18s ease;
+  transition: box-shadow 0.18s ease;
 }
 .earth-subtask-bar:hover {
-  transform: scale(1.03);
   box-shadow: 0 3px 10px rgba(9,30,66,0.15) !important;
+}
+.earth-bar::before,
+.earth-bar::after,
+.earth-subtask-bar::before,
+.earth-subtask-bar::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 2px;
+  border-radius: 2px;
+  background: rgba(255,255,255,0.8);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  pointer-events: none;
+}
+.earth-bar::before,
+.earth-subtask-bar::before {
+  left: 6px;
+}
+.earth-bar::after,
+.earth-subtask-bar::after {
+  right: 6px;
+}
+.earth-bar:hover::before,
+.earth-bar:hover::after,
+.earth-subtask-bar:hover::before,
+.earth-subtask-bar:hover::after {
+  opacity: 1;
 }
 .earth-row {
   transition: background-color 0.15s ease;
@@ -163,14 +212,20 @@ const globalStyles = `
 }
 `;
 
+const TODAY_MARKER_ID = "__today_marker__";
+const MARKER_MIN_VISIBLE_X = 12;
+const CHART_TOP_GAP = 28;
+
 export default function GanttEarth() {
-  const [themePreference, setThemePreference] = useState<ThemePreference>(() => {
-    if (typeof window === "undefined") return "light";
-    const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
-    if (stored === "light" || stored === "dark" || stored === "system")
-      return stored;
-    return "light";
-  });
+  const [themePreference, setThemePreference] = useState<ThemePreference>(
+    () => {
+      if (typeof window === "undefined") return "light";
+      const stored = window.localStorage.getItem(THEME_STORAGE_KEY);
+      if (stored === "light" || stored === "dark" || stored === "system")
+        return stored;
+      return "light";
+    }
+  );
   const [systemThemeMode, setSystemThemeMode] = useState<ThemeMode>(() => {
     if (typeof window === "undefined") return "light";
     return window.matchMedia("(prefers-color-scheme: dark)").matches
@@ -180,6 +235,9 @@ export default function GanttEarth() {
   const themeMode: ThemeMode =
     themePreference === "system" ? systemThemeMode : themePreference;
   const C = THEME_COLORS[themeMode];
+  const tabs = useAtomValue(tabsAtom);
+  const activeTabId = useAtomValue(activeTabIdAtom);
+  const setActiveTabId = useSetAtom(activeTabIdAtom);
   const tasks = useAtomValue(tasksAtom);
   const markers = useAtomValue(markersAtom);
   const {
@@ -241,7 +299,8 @@ export default function GanttEarth() {
     pxPerDay,
     { taskRowH: TASK_ROW_HEIGHT, subtaskRowH: SUBTASK_ROW_HEIGHT },
     rightRef,
-    displayTasks
+    displayTasks,
+    CHART_TOP_GAP
   );
   const addTask = useSetAtom(addNewTaskAtom);
   const addSubtask = useSetAtom(addNewSubtaskAtom);
@@ -252,6 +311,11 @@ export default function GanttEarth() {
   const addMarker = useSetAtom(addMarkerAtom);
   const removeMarker = useSetAtom(removeMarkerAtom);
   const updateMarker = useSetAtom(updateMarkerAtom);
+  const createTimelineTab = useSetAtom(createTimelineTabAtom);
+  const renameTimelineTab = useSetAtom(renameTimelineTabAtom);
+  const recolorTimelineTab = useSetAtom(recolorTimelineTabAtom);
+  const reorderTimelineTabs = useSetAtom(reorderTimelineTabsAtom);
+  const deleteTimelineTab = useSetAtom(deleteTimelineTabAtom);
   useKeyboardShortcuts();
 
   const [editingName, setEditingName] = useState<{
@@ -260,6 +324,21 @@ export default function GanttEarth() {
     value: string;
   } | null>(null);
   const [openColorTaskId, setOpenColorTaskId] = useState<string | null>(null);
+  const [openColorTabId, setOpenColorTabId] = useState<string | null>(null);
+  const [tabColorMenuPosition, setTabColorMenuPosition] = useState<{
+    tabId: string;
+    top: number;
+    left: number;
+  } | null>(null);
+  const [draggingTabId, setDraggingTabId] = useState<string | null>(null);
+  const [tabNameEdit, setTabNameEdit] = useState<{
+    tabId: string;
+    value: string;
+  } | null>(null);
+  const [tabPendingDelete, setTabPendingDelete] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
   const [draggingMarkerId, setDraggingMarkerId] = useState<string | null>(null);
   const [draggingMarkerX, setDraggingMarkerX] = useState<number | null>(null);
   const [editingMarker, setEditingMarker] = useState<{
@@ -278,30 +357,7 @@ export default function GanttEarth() {
     }),
     [config.endDate, config.startDate]
   );
-
-  const taskDateBounds = useMemo(() => {
-    let minTime = Number.POSITIVE_INFINITY;
-    let maxTime = Number.NEGATIVE_INFINITY;
-    for (const task of tasks) {
-      const allDates = [
-        task.startDate,
-        task.endDate,
-        ...task.subtasks.flatMap((sub) => [sub.startDate, sub.endDate]),
-      ];
-      for (const value of allDates) {
-        const parsed = parseISO(value);
-        if (!isValid(parsed)) continue;
-        const time = parsed.getTime();
-        minTime = Math.min(minTime, time);
-        maxTime = Math.max(maxTime, time);
-      }
-    }
-    if (!Number.isFinite(minTime) || !Number.isFinite(maxTime)) return null;
-    return {
-      startDate: toConfigDate(new Date(minTime)),
-      endDate: toConfigDate(new Date(maxTime)),
-    };
-  }, [tasks]);
+  const todayDate = useMemo(() => toConfigDate(new Date()), []);
 
   const applyMode = useCallback(
     (mode: TimelineViewMode) => {
@@ -310,24 +366,18 @@ export default function GanttEarth() {
     [setViewMode]
   );
 
-  const handleResetToTaskWindow = useCallback(() => {
+  const handleResetToTodayMarker = useCallback(() => {
     const viewport = rightRef.current;
-    if (!viewport || !taskDateBounds) return;
-    const rangeStart = dateToX(taskDateBounds.startDate);
-    const rangeEnd = dateToX(taskDateBounds.endDate);
-    const rangeWidth = Math.max(pxPerDay, rangeEnd - rangeStart);
-    const padding = pxPerDay * 2;
-    const targetLeft =
-      rangeStart -
-      Math.max(0, (viewport.clientWidth - rangeWidth) / 2) -
-      padding;
+    if (!viewport) return;
+    const todayX = dateToX(todayDate);
+    const targetLeft = todayX - viewport.clientWidth / 2;
     const maxLeft = Math.max(0, totalWidth - viewport.clientWidth);
     const clampedLeft = Math.min(maxLeft, Math.max(0, targetLeft));
     viewport.scrollTo({ left: clampedLeft, behavior: "smooth" });
     if (headerRightRef.current) {
       headerRightRef.current.scrollLeft = clampedLeft;
     }
-  }, [dateToX, pxPerDay, taskDateBounds, totalWidth]);
+  }, [dateToX, todayDate, totalWidth]);
 
   const handleRangeChange = useCallback(
     (range: DateRange | undefined) => {
@@ -336,6 +386,57 @@ export default function GanttEarth() {
     },
     [setDateRange]
   );
+
+  const activeTab = useMemo(
+    () => tabs.find((tab) => tab.id === activeTabId) ?? tabs[0],
+    [activeTabId, tabs]
+  );
+
+  const startTabNameEdit = useCallback((tabId: string, title: string) => {
+    setTabNameEdit({ tabId, value: title });
+  }, []);
+
+  const cancelTabNameEdit = useCallback(() => {
+    setTabNameEdit(null);
+  }, []);
+
+  const commitTabNameEdit = useCallback(() => {
+    if (!tabNameEdit) return;
+    renameTimelineTab({ tabId: tabNameEdit.tabId, title: tabNameEdit.value });
+    setTabNameEdit(null);
+  }, [renameTimelineTab, tabNameEdit]);
+
+  const handleTabDragStart = useCallback(
+    (e: React.DragEvent<HTMLDivElement>, tabId: string) => {
+      setDraggingTabId(tabId);
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", tabId);
+    },
+    []
+  );
+
+  const handleTabDrop = useCallback(
+    (targetTabId: string) => {
+      if (!draggingTabId || draggingTabId === targetTabId) {
+        setDraggingTabId(null);
+        return;
+      }
+
+      const fromIndex = tabs.findIndex((tab) => tab.id === draggingTabId);
+      const toIndex = tabs.findIndex((tab) => tab.id === targetTabId);
+      if (fromIndex >= 0 && toIndex >= 0 && fromIndex !== toIndex) {
+        reorderTimelineTabs({ fromIndex, toIndex });
+      }
+      setDraggingTabId(null);
+    },
+    [draggingTabId, reorderTimelineTabs, tabs]
+  );
+
+  const handleConfirmTabDelete = useCallback(() => {
+    if (!tabPendingDelete) return;
+    deleteTimelineTab(tabPendingDelete.id);
+    setTabPendingDelete(null);
+  }, [deleteTimelineTab, tabPendingDelete]);
 
   const startNameEdit = useCallback(
     (taskId: string, currentName: string, subtaskId?: string) => {
@@ -529,7 +630,6 @@ export default function GanttEarth() {
     const onThemeChange = (event: MediaQueryListEvent) => {
       setSystemThemeMode(event.matches ? "dark" : "light");
     };
-    setSystemThemeMode(mediaQuery.matches ? "dark" : "light");
     mediaQuery.addEventListener("change", onThemeChange);
     return () => mediaQuery.removeEventListener("change", onThemeChange);
   }, []);
@@ -543,12 +643,18 @@ export default function GanttEarth() {
   }, [C.appBg, C.charcoal, themeMode, themePreference]);
 
   useEffect(() => {
-    if (!openColorTaskId && !openMarkerMenuId) return;
+    if (!openColorTaskId && !openColorTabId && !openMarkerMenuId) return;
     const onPointerDown = (e: PointerEvent) => {
       const target = e.target as HTMLElement;
       if (
         target.closest("[data-task-color-menu]") ||
         target.closest("[data-task-color-trigger]")
+      ) {
+        return;
+      }
+      if (
+        target.closest("[data-tab-color-menu]") ||
+        target.closest("[data-tab-color-trigger]")
       ) {
         return;
       }
@@ -559,11 +665,13 @@ export default function GanttEarth() {
         return;
       }
       setOpenColorTaskId(null);
+      setOpenColorTabId(null);
+      setTabColorMenuPosition(null);
       setOpenMarkerMenuId(null);
     };
     window.addEventListener("pointerdown", onPointerDown);
     return () => window.removeEventListener("pointerdown", onPointerDown);
-  }, [openColorTaskId, openMarkerMenuId]);
+  }, [openColorTaskId, openColorTabId, openMarkerMenuId]);
 
   const syncScroll = useCallback((source: "left" | "right") => {
     const l = leftRef.current;
@@ -585,6 +693,7 @@ export default function GanttEarth() {
 
   const handleMarkerPointerDown = useCallback(
     (e: React.PointerEvent<HTMLDivElement>, marker: Marker) => {
+      if (marker.id === TODAY_MARKER_ID) return;
       if (e.button !== 0) return;
       const target = e.target as HTMLElement;
       if (target.closest("input") || target.closest("button")) return;
@@ -606,6 +715,7 @@ export default function GanttEarth() {
 
   const handleMarkerDoubleClick = useCallback(
     (e: React.MouseEvent<HTMLDivElement>, marker: Marker) => {
+      if (marker.id === TODAY_MARKER_ID) return;
       e.preventDefault();
       e.stopPropagation();
       setEditingMarker({ markerId: marker.id, value: marker.label });
@@ -715,6 +825,19 @@ export default function GanttEarth() {
   }, [clampMarkerX, draggingMarkerId, markers, updateMarker, xToDate]);
 
   const chartHeight = totalHeight(displayTasks);
+  const chartCanvasHeight = chartHeight + CHART_TOP_GAP;
+  const timelineMarkers = useMemo<Marker[]>(
+    () => [
+      {
+        id: TODAY_MARKER_ID,
+        date: todayDate,
+        label: "Today",
+        color: C.terracotta,
+      },
+      ...markers.filter((marker) => marker.id !== TODAY_MARKER_ID),
+    ],
+    [C.terracotta, markers, todayDate]
+  );
   const chartStartDate = useMemo(
     () => parseISO(config.startDate),
     [config.startDate]
@@ -777,7 +900,8 @@ export default function GanttEarth() {
           justifyContent: "center",
           cursor: "pointer",
           color: inactiveColor,
-          background: themePreference === "light" ? themeActiveBg : "transparent",
+          background:
+            themePreference === "light" ? themeActiveBg : "transparent",
           transition: "all 0.15s ease",
         }}
         title="Use light mode"
@@ -797,7 +921,8 @@ export default function GanttEarth() {
           justifyContent: "center",
           cursor: "pointer",
           color: inactiveColor,
-          background: themePreference === "dark" ? themeActiveBg : "transparent",
+          background:
+            themePreference === "dark" ? themeActiveBg : "transparent",
           transition: "all 0.15s ease",
         }}
         title="Use dark mode"
@@ -817,7 +942,8 @@ export default function GanttEarth() {
           justifyContent: "center",
           cursor: "pointer",
           color: inactiveColor,
-          background: themePreference === "system" ? themeActiveBg : "transparent",
+          background:
+            themePreference === "system" ? themeActiveBg : "transparent",
           transition: "all 0.15s ease",
         }}
         title="Use system theme preference"
@@ -941,7 +1067,7 @@ export default function GanttEarth() {
                 gap: 10,
                 padding: "8px 10px",
                 borderRadius: 10,
-                border: `1px solid ${C.ruleLight}`,
+                border: `1px solid ${activeTab?.color ?? C.ruleLight}`,
                 background:
                   themeMode === "dark"
                     ? "rgba(13,17,23,0.58)"
@@ -954,15 +1080,19 @@ export default function GanttEarth() {
                   letterSpacing: "0.08em",
                   textTransform: "uppercase",
                   opacity: 0.55,
-                  flexShrink: 0,
+                  whiteSpace: "nowrap",
+                  maxWidth: "320px",
+                  width: "fit-content",
+                  textOverflow: "ellipsis",
+                  overflow: "hidden",
                 }}
               >
-                Actions
+                Actions • <strong>{activeTab?.title ?? "Timeline"}</strong>
               </span>
               <GanttToolbar
-                className="flex-wrap gap-1.5"
+                className="gap-1.5"
                 buttonClass="earth-toolbar-btn earth-toolbar-btn-minimal"
-                accentColor={C.terracotta}
+                accentColor={activeTab?.color ?? C.terracotta}
                 dividerClass="earth-divider-minimal"
               />
               <div
@@ -970,7 +1100,7 @@ export default function GanttEarth() {
                   width: 1,
                   height: 18,
                   background: C.ruleLight,
-                  flexShrink: 0,
+                  opacity: 0.6,
                 }}
               />
               <div
@@ -978,7 +1108,7 @@ export default function GanttEarth() {
                   display: "flex",
                   alignItems: "center",
                   gap: 6,
-                  flexWrap: "wrap",
+                  flexWrap: "nowrap",
                   minWidth: 0,
                 }}
               >
@@ -990,7 +1120,7 @@ export default function GanttEarth() {
                         key={mode}
                         onClick={() => applyMode(mode)}
                         style={{
-                          border: `1px solid ${active ? C.terracotta : C.ruleLight}`,
+                          border: `1px solid ${active ? (activeTab?.color ?? C.terracotta) : C.ruleLight}`,
                           background: active
                             ? themeMode === "dark"
                               ? "rgba(88,166,255,0.24)"
@@ -1039,7 +1169,7 @@ export default function GanttEarth() {
                   }}
                 />
                 <button
-                  onClick={handleResetToTaskWindow}
+                  onClick={handleResetToTodayMarker}
                   style={{
                     border: `1px solid ${C.ruleLight}`,
                     background: "transparent",
@@ -1054,8 +1184,8 @@ export default function GanttEarth() {
                     alignItems: "center",
                     justifyContent: "center",
                   }}
-                  title="Reset chart position to task timeline"
-                  aria-label="Reset chart position to task timeline"
+                  title="Center chart on Today marker"
+                  aria-label="Center chart on Today marker"
                 >
                   <LocateFixed size={12} />
                 </button>
@@ -1083,6 +1213,342 @@ export default function GanttEarth() {
               themeActiveBg: "rgba(88,166,255,0.28)",
             })}
           </div>
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          borderBottom: `1px solid ${C.ruleLight}`,
+          background: C.cream,
+          minHeight: 62,
+          zIndex: 70,
+        }}
+      >
+        <div
+          style={{
+            width: leftPanelWidth,
+            minWidth: leftPanelWidth,
+            borderRight: `1px solid ${C.ruleLight}`,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "flex-start",
+            gap: 8,
+            padding: "10px 12px",
+          }}
+        >
+          <span
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              opacity: 0.55,
+            }}
+          >
+            Timelines
+          </span>
+        </div>
+
+        <div
+          style={{
+            flex: 1,
+            minWidth: 0,
+            padding: "8px 10px",
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            overflowX: "auto",
+          }}
+        >
+          {tabs.map((tab) => {
+            const isActive = tab.id === activeTabId;
+            const isEditing = tabNameEdit?.tabId === tab.id;
+            return (
+              <div
+                key={tab.id}
+                draggable
+                onDragStart={(e) => handleTabDragStart(e, tab.id)}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={() => handleTabDrop(tab.id)}
+                onDragEnd={() => setDraggingTabId(null)}
+                onClick={() => setActiveTabId(tab.id)}
+                onDoubleClick={() => startTabNameEdit(tab.id, tab.title)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                  height: 44,
+                  minWidth: 180,
+                  maxWidth: 280,
+                  borderRadius: 11,
+                  padding: "0 10px",
+                  border: `1px solid ${isActive ? tab.color : C.ruleLight}`,
+                  background: isActive
+                    ? themeMode === "dark"
+                      ? "rgba(13,17,23,0.78)"
+                      : "rgba(255,255,255,0.96)"
+                    : "transparent",
+                  boxShadow: isActive
+                    ? `inset 0 0 0 1px ${tab.color}22`
+                    : "none",
+                  cursor: "pointer",
+                  opacity: draggingTabId === tab.id ? 0.55 : 1,
+                  transition: "all 0.14s ease",
+                  flexShrink: 0,
+                }}
+              >
+                {isEditing ? (
+                  <>
+                    <input
+                      autoFocus
+                      value={tabNameEdit.value}
+                      onChange={(e) => {
+                        const nextValue = e.currentTarget.value;
+                        setTabNameEdit((prev) =>
+                          prev ? { ...prev, value: nextValue } : prev
+                        );
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          commitTabNameEdit();
+                        }
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          cancelTabNameEdit();
+                        }
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        border: `1px solid ${C.ruleLight}`,
+                        borderRadius: 8,
+                        height: 28,
+                        padding: "0 8px",
+                        fontSize: 12,
+                        color: C.charcoal,
+                        background: C.editorBg,
+                        outline: "none",
+                      }}
+                    />
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        commitTabNameEdit();
+                      }}
+                      style={{
+                        width: 24,
+                        height: 24,
+                        borderRadius: 999,
+                        border: `1px solid ${C.ruleLight}`,
+                        background: "transparent",
+                        color: C.charcoal,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        cursor: "pointer",
+                      }}
+                      title="Apply tab name"
+                      aria-label="Apply tab name"
+                    >
+                      <Check size={12} />
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        whiteSpace: "nowrap",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        minWidth: 0,
+                        flex: 1,
+                      }}
+                    >
+                      {tab.title}
+                    </span>
+
+                    <div
+                      style={{
+                        position: "relative",
+                        flexShrink: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        height: "100%",
+                      }}
+                    >
+                      <button
+                        data-tab-color-trigger
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const triggerBounds =
+                            e.currentTarget.getBoundingClientRect();
+                          setOpenColorTabId((prev) => {
+                            if (prev === tab.id) {
+                              setTabColorMenuPosition(null);
+                              return null;
+                            }
+                            setTabColorMenuPosition({
+                              tabId: tab.id,
+                              top: triggerBounds.bottom + 6,
+                              left: triggerBounds.right,
+                            });
+                            return tab.id;
+                          });
+                        }}
+                        style={{
+                          width: 18,
+                          height: 18,
+                          borderRadius: 999,
+                          border: `1px solid ${C.ruleLight}`,
+                          background: tab.color,
+                          cursor: "pointer",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                        title="Change tab color"
+                        aria-label="Change tab color"
+                      >
+                        {openColorTabId === tab.id && (
+                          <Pipette
+                            size={10}
+                            color={themeMode === "dark" ? C.charcoal : C.ivory}
+                          />
+                        )}
+                      </button>
+
+                      {openColorTabId === tab.id &&
+                        tabColorMenuPosition?.tabId === tab.id && (
+                          <div
+                            data-tab-color-menu
+                            style={{
+                              position: "fixed",
+                              top: tabColorMenuPosition.top,
+                              left: tabColorMenuPosition.left,
+                              transform: "translateX(-100%)",
+                              zIndex: 80,
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 6,
+                              padding: 8,
+                              borderRadius: 10,
+                              border: `1px solid ${C.ruleLight}`,
+                              background: C.cream,
+                              boxShadow:
+                                "0 8px 18px rgba(9,30,66,0.12), 0 1px 2px rgba(9,30,66,0.08)",
+                            }}
+                          >
+                            {TASK_PRESET_COLORS.map((color) => (
+                              <button
+                                key={color}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  recolorTimelineTab({ tabId: tab.id, color });
+                                  setOpenColorTabId(null);
+                                  setTabColorMenuPosition(null);
+                                }}
+                                style={{
+                                  width: 14,
+                                  height: 14,
+                                  borderRadius: 999,
+                                  border: `1px solid ${C.ruleLight}`,
+                                  background: color,
+                                  cursor: "pointer",
+                                  padding: 0,
+                                }}
+                                title={`Set tab color ${color}`}
+                              />
+                            ))}
+                            <label
+                              style={{
+                                width: 16,
+                                height: 16,
+                                borderRadius: 999,
+                                border: `1px solid ${C.ruleLight}`,
+                                background: tab.color,
+                                position: "relative",
+                                overflow: "hidden",
+                                cursor: "pointer",
+                              }}
+                              title="Custom tab color"
+                            >
+                              <input
+                                type="color"
+                                value={tab.color}
+                                onChange={(e) =>
+                                  recolorTimelineTab({
+                                    tabId: tab.id,
+                                    color: e.currentTarget.value,
+                                  })
+                                }
+                                style={{
+                                  position: "absolute",
+                                  inset: 0,
+                                  opacity: 0,
+                                  cursor: "pointer",
+                                }}
+                              />
+                            </label>
+                          </div>
+                        )}
+                    </div>
+
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setTabPendingDelete({ id: tab.id, title: tab.title });
+                      }}
+                      style={{
+                        width: 18,
+                        height: 18,
+                        borderRadius: 999,
+                        border: "none",
+                        background: "transparent",
+                        color: C.charcoal,
+                        opacity: 0.55,
+                        cursor: "pointer",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                      title="Delete tab"
+                      aria-label="Delete tab"
+                    >
+                      <X size={12} />
+                    </button>
+                  </>
+                )}
+              </div>
+            );
+          })}
+          <button
+            onClick={() => createTimelineTab()}
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 999,
+              border: `1px solid ${C.ruleLight}`,
+              background:
+                themeMode === "dark"
+                  ? "rgba(13,17,23,0.65)"
+                  : "rgba(255,255,255,0.9)",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: C.terracotta,
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+            title="Create new timeline tab"
+            aria-label="Create new timeline tab"
+          >
+            <Plus size={14} />
+          </button>
         </div>
       </div>
 
@@ -1261,7 +1727,32 @@ export default function GanttEarth() {
             scrollbarWidth: "none",
           }}
         >
-          <div style={{ height: chartHeight, position: "relative" }}>
+          <div style={{ height: chartCanvasHeight, position: "relative" }}>
+            <div
+              style={{
+                height: CHART_TOP_GAP,
+                borderBottom: `1px solid ${C.ruleLight}`,
+                background:
+                  themeMode === "dark"
+                    ? "rgba(13,17,23,0.5)"
+                    : "rgba(255,255,255,0.45)",
+                display: "flex",
+                alignItems: "center",
+                padding: "0 20px",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 700,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
+                  opacity: 0.55,
+                }}
+              >
+                Markers
+              </span>
+            </div>
             {displayTasks.map((task) => {
               const isTaskDragged =
                 isDragging && dragTaskId === task.id && !dragSubtaskId;
@@ -1762,7 +2253,7 @@ export default function GanttEarth() {
             onDoubleClick={handleChartDoubleClick}
             style={{
               width: totalWidth,
-              height: chartHeight,
+              height: chartCanvasHeight,
               position: "relative",
             }}
           >
@@ -1775,7 +2266,7 @@ export default function GanttEarth() {
                   left: col.x,
                   top: 0,
                   width: col.width,
-                  height: chartHeight,
+                  height: chartCanvasHeight,
                   background:
                     themeMode === "dark"
                       ? "rgba(230,237,243,0.035)"
@@ -1794,7 +2285,7 @@ export default function GanttEarth() {
                   left: col.x,
                   top: 0,
                   width: 1,
-                  height: chartHeight,
+                  height: chartCanvasHeight,
                   background: col.isWeekStart ? C.ruleLight : C.ruleVert,
                 }}
               />
@@ -1810,7 +2301,7 @@ export default function GanttEarth() {
                   style={{
                     position: "absolute",
                     left: 0,
-                    top: y + TASK_ROW_HEIGHT - 1,
+                    top: CHART_TOP_GAP + y + TASK_ROW_HEIGHT - 1,
                     width: totalWidth,
                     height: 1,
                     background: C.ruleLight,
@@ -1825,7 +2316,11 @@ export default function GanttEarth() {
                       position: "absolute",
                       left: 0,
                       top:
-                        y + TASK_ROW_HEIGHT + (si + 1) * SUBTASK_ROW_HEIGHT - 1,
+                        CHART_TOP_GAP +
+                        y +
+                        TASK_ROW_HEIGHT +
+                        (si + 1) * SUBTASK_ROW_HEIGHT -
+                        1,
                       width: totalWidth,
                       height: 1,
                       background: C.ruleLight,
@@ -1842,7 +2337,7 @@ export default function GanttEarth() {
                 position: "absolute",
                 inset: 0,
                 width: totalWidth,
-                height: chartHeight,
+                height: chartCanvasHeight,
                 pointerEvents: "none",
                 zIndex: 5,
               }}
@@ -1859,8 +2354,9 @@ export default function GanttEarth() {
                       parentWidth={parentBar.width}
                       childLeft={childBar.left}
                       childWidth={childBar.width}
-                      parentBottom={y + TASK_ROW_HEIGHT - 6}
+                      parentBottom={CHART_TOP_GAP + y + TASK_ROW_HEIGHT - 6}
                       childTop={
+                        CHART_TOP_GAP +
                         y +
                         TASK_ROW_HEIGHT +
                         si * SUBTASK_ROW_HEIGHT +
@@ -1874,11 +2370,13 @@ export default function GanttEarth() {
             </svg>
 
             {/* Markers */}
-            {markers.map((marker) => {
-              const x =
+            {timelineMarkers.map((marker) => {
+              const isTodayMarker = marker.id === TODAY_MARKER_ID;
+              const rawX =
                 draggingMarkerId === marker.id && draggingMarkerX !== null
                   ? draggingMarkerX
                   : dateToX(marker.date);
+              const x = Math.max(MARKER_MIN_VISIBLE_X, rawX);
               return (
                 <div
                   key={marker.id}
@@ -1889,10 +2387,13 @@ export default function GanttEarth() {
                     position: "absolute",
                     left: x,
                     top: 0,
-                    height: chartHeight,
-                    zIndex: 8,
-                    cursor:
-                      draggingMarkerId === marker.id ? "grabbing" : "grab",
+                    height: chartCanvasHeight,
+                    zIndex: 60,
+                    cursor: isTodayMarker
+                      ? "default"
+                      : draggingMarkerId === marker.id
+                        ? "grabbing"
+                        : "grab",
                   }}
                 >
                   <div
@@ -1901,9 +2402,11 @@ export default function GanttEarth() {
                       left: 0,
                       top: 0,
                       width: 0,
-                      height: chartHeight,
-                      borderLeft: `2px dashed ${marker.color || C.terracotta}`,
-                      opacity: 0.5,
+                      height: chartCanvasHeight,
+                      borderLeft: isTodayMarker
+                        ? `2px solid ${marker.color || C.terracotta}`
+                        : `2px dashed ${marker.color || C.terracotta}`,
+                      opacity: isTodayMarker ? 0.8 : 0.5,
                     }}
                   />
                   <FlagPennant x={0} color={marker.color || C.terracotta} />
@@ -1963,38 +2466,41 @@ export default function GanttEarth() {
                       marker.label
                     )}
                   </div>
-                  <button
-                    data-marker-actions-trigger
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setOpenMarkerMenuId((prev) =>
-                        prev === marker.id ? null : marker.id
-                      );
-                    }}
-                    style={{
-                      position: "absolute",
-                      left: 10,
-                      top: 18,
-                      width: 18,
-                      height: 18,
-                      borderRadius: 999,
-                      border: `1px solid ${C.ruleLight}`,
-                      background: C.editorBg,
-                      color: marker.color || C.terracotta,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      cursor: "pointer",
-                      opacity: openMarkerMenuId === marker.id ? 1 : 0.7,
-                    }}
-                    title="Marker options"
-                    aria-label="Marker options"
-                  >
-                    <Pipette size={11} />
-                  </button>
-                  {openMarkerMenuId === marker.id && (
+                  {!isTodayMarker && (
+                    <button
+                      data-marker-actions-trigger
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        setOpenMarkerMenuId((prev) =>
+                          prev === marker.id ? null : marker.id
+                        );
+                      }}
+                      style={{
+                        position: "absolute",
+                        left: 10,
+                        top: 18,
+                        zIndex: 0,
+                        width: 18,
+                        height: 18,
+                        borderRadius: 999,
+                        border: `1px solid ${C.ruleLight}`,
+                        background: C.editorBg,
+                        color: marker.color || C.terracotta,
+                        display: "inline-flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        cursor: "pointer",
+                        opacity: openMarkerMenuId === marker.id ? 1 : 0.7,
+                      }}
+                      title="Marker options"
+                      aria-label="Marker options"
+                    >
+                      <Pipette size={11} />
+                    </button>
+                  )}
+                  {!isTodayMarker && openMarkerMenuId === marker.id && (
                     <div
                       data-marker-actions-menu
                       onPointerDown={(e) => e.stopPropagation()}
@@ -2149,7 +2655,7 @@ export default function GanttEarth() {
                     style={{
                       position: "absolute",
                       left: bs.left,
-                      top: barTop,
+                      top: CHART_TOP_GAP + barTop,
                       width: bs.width,
                       height: barH,
                       borderRadius: 999,
@@ -2245,7 +2751,7 @@ export default function GanttEarth() {
                         style={{
                           position: "absolute",
                           left: sbs.left,
-                          top: subY,
+                          top: CHART_TOP_GAP + subY,
                           width: sbs.width,
                           height: subBarH,
                           borderRadius: 999,
@@ -2317,6 +2823,30 @@ export default function GanttEarth() {
           </div>
         </div>
       </div>
+
+      <AlertDialog
+        open={Boolean(tabPendingDelete)}
+        onOpenChange={(open) => {
+          if (!open) setTabPendingDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete timeline tab?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {tabPendingDelete
+                ? `This will permanently remove ${tabPendingDelete.title} and its tasks, markers, and history.`
+                : "This will permanently remove this timeline tab."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmTabDelete}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

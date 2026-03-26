@@ -3,63 +3,97 @@ import { format } from "date-fns";
 import { CURRENT_EXPORT_VERSION } from "../mappers/exportMappers";
 import type {
   GanttExportPayload,
+  LegacyGanttExportPayload,
   Marker,
   Subtask,
   Task,
+  TimelineTab,
+  TimelineTabData,
   TimelineConfig,
 } from "../types";
 
-const isString = (value: unknown): value is string => typeof value === "string";
+type JsonValue = string | number | boolean | null | JsonObject | JsonValue[];
+type JsonObject = {
+  [key: string]: JsonValue;
+};
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  value !== null && typeof value === "object";
+const isString = (value: JsonValue): value is string =>
+  typeof value === "string";
 
-const isIsoDate = (value: unknown): value is string =>
+const isJsonObject = (value: JsonValue): value is JsonObject =>
+  value !== null && typeof value === "object" && !Array.isArray(value);
+
+const isIsoDate = (value: JsonValue): value is string =>
   isString(value) && /^\d{4}-\d{2}-\d{2}$/.test(value);
 
-const isValidSubtask = (subtask: unknown): subtask is Subtask => {
-  if (!isRecord(subtask)) return false;
-  return (
-    isString(subtask.id) &&
-    isString(subtask.name) &&
-    isIsoDate(subtask.startDate) &&
-    isIsoDate(subtask.endDate) &&
-    isString(subtask.color)
-  );
+const parseSubtask = (subtask: JsonValue): Subtask | null => {
+  if (!isJsonObject(subtask)) return null;
+  if (!isString(subtask.id)) return null;
+  if (!isString(subtask.name)) return null;
+  if (!isIsoDate(subtask.startDate)) return null;
+  if (!isIsoDate(subtask.endDate)) return null;
+  if (!isString(subtask.color)) return null;
+
+  return {
+    id: subtask.id,
+    name: subtask.name,
+    startDate: subtask.startDate,
+    endDate: subtask.endDate,
+    color: subtask.color,
+  };
 };
 
-const isValidTask = (task: unknown): task is Task => {
-  if (!isRecord(task)) return false;
-  return (
-    isString(task.id) &&
-    isString(task.name) &&
-    isIsoDate(task.startDate) &&
-    isIsoDate(task.endDate) &&
-    isString(task.color) &&
-    typeof task.progress === "number" &&
-    Array.isArray(task.subtasks) &&
-    task.subtasks.every(isValidSubtask)
-  );
+const parseTask = (task: JsonValue): Task | null => {
+  if (!isJsonObject(task)) return null;
+  if (!isString(task.id)) return null;
+  if (!isString(task.name)) return null;
+  if (!isIsoDate(task.startDate)) return null;
+  if (!isIsoDate(task.endDate)) return null;
+  if (!isString(task.color)) return null;
+  if (typeof task.progress !== "number") return null;
+  if (!Array.isArray(task.subtasks)) return null;
+
+  const subtasks: Subtask[] = [];
+  for (const subtask of task.subtasks) {
+    const parsedSubtask = parseSubtask(subtask);
+    if (!parsedSubtask) return null;
+    subtasks.push(parsedSubtask);
+  }
+
+  return {
+    id: task.id,
+    name: task.name,
+    startDate: task.startDate,
+    endDate: task.endDate,
+    color: task.color,
+    progress: task.progress,
+    subtasks,
+  };
 };
 
-const isValidMarker = (marker: unknown): marker is Marker => {
-  if (!isRecord(marker)) return false;
-  return (
-    isString(marker.id) &&
-    isIsoDate(marker.date) &&
-    isString(marker.label) &&
-    isString(marker.color)
-  );
+const parseMarker = (marker: JsonValue): Marker | null => {
+  if (!isJsonObject(marker)) return null;
+  if (!isString(marker.id)) return null;
+  if (!isIsoDate(marker.date)) return null;
+  if (!isString(marker.label)) return null;
+  if (!isString(marker.color)) return null;
+
+  return {
+    id: marker.id,
+    date: marker.date,
+    label: marker.label,
+    color: marker.color,
+  };
 };
 
-const isValidTimelineConfig = (
-  timelineConfig: unknown
-): timelineConfig is TimelineConfig => {
-  if (!isRecord(timelineConfig)) return false;
+const parseTimelineConfig = (
+  timelineConfig: JsonValue
+): TimelineConfig | null => {
+  if (!isJsonObject(timelineConfig)) return null;
   const { startDate, endDate, zoomLevel, viewMode, customDateRange } =
     timelineConfig;
-  if (!isIsoDate(startDate) || !isIsoDate(endDate)) return false;
-  if (typeof zoomLevel !== "number") return false;
+  if (!isIsoDate(startDate) || !isIsoDate(endDate)) return null;
+  if (typeof zoomLevel !== "number") return null;
   if (
     viewMode !== undefined &&
     viewMode !== "day" &&
@@ -67,24 +101,131 @@ const isValidTimelineConfig = (
     viewMode !== "month" &&
     viewMode !== "year"
   ) {
-    return false;
+    return null;
   }
   if (customDateRange !== undefined && typeof customDateRange !== "boolean") {
-    return false;
+    return null;
   }
-  return true;
+
+  return {
+    startDate,
+    endDate,
+    zoomLevel,
+    ...(viewMode !== undefined ? { viewMode } : {}),
+    ...(customDateRange !== undefined ? { customDateRange } : {}),
+  };
+};
+
+const parseTimelineTab = (tab: JsonValue): TimelineTab | null => {
+  if (!isJsonObject(tab)) return null;
+  if (!isString(tab.id)) return null;
+  if (!isString(tab.title)) return null;
+  if (!isString(tab.color)) return null;
+
+  return {
+    id: tab.id,
+    title: tab.title,
+    color: tab.color,
+  };
+};
+
+const parseTimelineTabData = (
+  timelineTabData: JsonValue
+): TimelineTabData | null => {
+  if (!isJsonObject(timelineTabData)) return null;
+  if (!Array.isArray(timelineTabData.tasks)) return null;
+  if (!Array.isArray(timelineTabData.markers)) return null;
+
+  const tasks: Task[] = [];
+  for (const task of timelineTabData.tasks) {
+    const parsedTask = parseTask(task);
+    if (!parsedTask) return null;
+    tasks.push(parsedTask);
+  }
+
+  const markers: Marker[] = [];
+  for (const marker of timelineTabData.markers) {
+    const parsedMarker = parseMarker(marker);
+    if (!parsedMarker) return null;
+    markers.push(parsedMarker);
+  }
+
+  const timelineConfig = parseTimelineConfig(timelineTabData.timelineConfig);
+  if (!timelineConfig) return null;
+
+  return {
+    tasks,
+    markers,
+    timelineConfig,
+  };
+};
+
+const parseLegacyPayload = (
+  data: JsonValue
+): LegacyGanttExportPayload | null => {
+  if (!isJsonObject(data)) return null;
+  if (data.version !== 1) return null;
+  if (!Array.isArray(data.tasks)) return null;
+  if (!Array.isArray(data.markers)) return null;
+
+  const tasks: Task[] = [];
+  for (const task of data.tasks) {
+    const parsedTask = parseTask(task);
+    if (!parsedTask) return null;
+    tasks.push(parsedTask);
+  }
+
+  const markers: Marker[] = [];
+  for (const marker of data.markers) {
+    const parsedMarker = parseMarker(marker);
+    if (!parsedMarker) return null;
+    markers.push(parsedMarker);
+  }
+
+  const timelineConfig = parseTimelineConfig(data.timelineConfig);
+  if (!timelineConfig) return null;
+
+  return {
+    version: 1,
+    tasks,
+    markers,
+    timelineConfig,
+  };
+};
+
+const parseTabPayload = (data: JsonValue): GanttExportPayload | null => {
+  if (!isJsonObject(data)) return null;
+  if (data.version !== CURRENT_EXPORT_VERSION) return null;
+  if (!Array.isArray(data.tabs)) return null;
+  if (!isString(data.activeTabId)) return null;
+  if (!isJsonObject(data.timelineDataByTab)) return null;
+
+  const tabs: TimelineTab[] = [];
+  const timelineDataByTab: Record<string, TimelineTabData> = {};
+
+  for (const tab of data.tabs) {
+    const parsedTab = parseTimelineTab(tab);
+    if (!parsedTab) return null;
+    const parsedTabData = parseTimelineTabData(
+      data.timelineDataByTab[parsedTab.id]
+    );
+    if (!parsedTabData) return null;
+    tabs.push(parsedTab);
+    timelineDataByTab[parsedTab.id] = parsedTabData;
+  }
+
+  return {
+    version: CURRENT_EXPORT_VERSION,
+    tabs,
+    activeTabId: data.activeTabId,
+    timelineDataByTab,
+  };
 };
 
 export const validateExportPayload = (
-  data: unknown
-): GanttExportPayload | null => {
-  if (!isRecord(data)) return null;
-  if (data.version !== CURRENT_EXPORT_VERSION) return null;
-  if (!Array.isArray(data.tasks) || !data.tasks.every(isValidTask)) return null;
-  if (!Array.isArray(data.markers) || !data.markers.every(isValidMarker))
-    return null;
-  if (!isValidTimelineConfig(data.timelineConfig)) return null;
-  return data as unknown as GanttExportPayload;
+  data: JsonValue
+): GanttExportPayload | LegacyGanttExportPayload | null => {
+  return parseLegacyPayload(data) ?? parseTabPayload(data);
 };
 
 export const downloadExportPayload = (data: GanttExportPayload): void => {
@@ -100,7 +241,7 @@ export const downloadExportPayload = (data: GanttExportPayload): void => {
   URL.revokeObjectURL(downloadUrl);
 };
 
-export const readJsonFile = (file: File): Promise<unknown> =>
+export const readJsonFile = (file: File): Promise<JsonValue> =>
   new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
