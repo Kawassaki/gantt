@@ -131,6 +131,12 @@ interface SessionCookiePayload {
   cloudId?: string;
 }
 
+interface TokenCookiePayload {
+  refreshToken?: string;
+  accessToken?: string;
+  expiresAtMs?: number;
+}
+
 const toBase64 = (value: string): string => {
   if (typeof Buffer !== "undefined") {
     return Buffer.from(value, "utf8").toString("base64");
@@ -197,6 +203,11 @@ const readDataCookie = <T>(req: IncomingMessage, name: string): T | null => {
   }
 };
 
+const toTokenCookiePayload = (bundle: JiraTokenBundle): TokenCookiePayload => ({
+  // Keep cookie payload small to avoid browser dropping it in preview deployments.
+  refreshToken: bundle.refreshToken,
+});
+
 type JiraConfig = ReturnType<typeof loadJiraProviderConfig>;
 
 const getAtlassianAccessToken = async (
@@ -210,7 +221,19 @@ const getAtlassianAccessToken = async (
 
   const tokenBundle =
     getDecryptedTokenBundle(sessionId, encryptionKey) ??
-    readDataCookie<JiraTokenBundle>(req, JIRA_TOKEN_COOKIE_NAME);
+    (() => {
+      const cookieToken = readDataCookie<TokenCookiePayload>(
+        req,
+        JIRA_TOKEN_COOKIE_NAME
+      );
+      if (!cookieToken) return null;
+      if (!cookieToken.accessToken || !cookieToken.expiresAtMs) return null;
+      return {
+        accessToken: cookieToken.accessToken,
+        refreshToken: cookieToken.refreshToken,
+        expiresAtMs: cookieToken.expiresAtMs,
+      } satisfies JiraTokenBundle;
+    })();
   if (!tokenBundle) {
     throw new Error("No Jira token found for this session");
   }
@@ -219,19 +242,25 @@ const getAtlassianAccessToken = async (
     return tokenBundle.accessToken;
   }
 
-  if (!tokenBundle.refreshToken) {
+  const refreshTokenFromCookie = readDataCookie<TokenCookiePayload>(
+    req,
+    JIRA_TOKEN_COOKIE_NAME
+  )?.refreshToken;
+  const refreshToken = tokenBundle.refreshToken ?? refreshTokenFromCookie;
+
+  if (!refreshToken) {
     throw new Error("Jira token expired and no refresh token available");
   }
 
-  const refreshed = await refreshTokenBundle(
-    fetch,
-    config,
-    tokenBundle.refreshToken
-  );
+  const refreshed = await refreshTokenBundle(fetch, config, refreshToken);
   storeEncryptedTokenBundle(sessionId, refreshed, encryptionKey);
   res.setHeader(
     "Set-Cookie",
-    createDataCookieHeader(JIRA_TOKEN_COOKIE_NAME, refreshed, 60 * 60 * 8)
+    createDataCookieHeader(
+      JIRA_TOKEN_COOKIE_NAME,
+      toTokenCookiePayload(refreshed),
+      60 * 60 * 8
+    )
   );
   return refreshed.accessToken;
 };
@@ -262,7 +291,11 @@ const handleAuthSignIn = async (
 
     res.setHeader("Set-Cookie", [
       createCookieHeader(hydrated.id),
-      createDataCookieHeader(JIRA_SESSION_DATA_COOKIE_NAME, hydrated, 60 * 60 * 8),
+      createDataCookieHeader(
+        JIRA_SESSION_DATA_COOKIE_NAME,
+        hydrated,
+        60 * 60 * 8
+      ),
     ]);
     jsonResponse(res, 200, {
       accountId: hydrated.accountId,
@@ -373,7 +406,11 @@ const handleAuthCallback = async (
       } satisfies SessionCookiePayload,
       60 * 60 * 8
     ),
-    createDataCookieHeader(JIRA_TOKEN_COOKIE_NAME, tokenBundle, 60 * 60 * 8),
+    createDataCookieHeader(
+      JIRA_TOKEN_COOKIE_NAME,
+      toTokenCookiePayload(tokenBundle),
+      60 * 60 * 8
+    ),
     createClearedOAuthCookieHeader(),
   ]);
   redirect(res, `${config.frontendBaseUrl}${pendingState.returnTo}`);
