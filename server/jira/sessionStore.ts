@@ -1,6 +1,3 @@
-import { randomUUID } from "node:crypto";
-
-import { decryptString, encryptString } from "./crypto";
 import type {
   JiraOAuthState,
   JiraServerSession,
@@ -18,7 +15,7 @@ const tokenPayloadFromString = (value: string): JiraTokenBundle =>
   JSON.parse(value) as JiraTokenBundle;
 
 export const createAnonymousSession = (): JiraServerSession => {
-  const session: JiraServerSession = { id: randomUUID() };
+  const session: JiraServerSession = { id: globalThis.crypto.randomUUID() };
   sessions.set(session.id, session);
   return session;
 };
@@ -58,19 +55,18 @@ export const consumeOauthState = (state: string): JiraOAuthState | null => {
 export const storeEncryptedTokenBundle = (
   sessionId: string,
   bundle: JiraTokenBundle,
-  encryptionKey: string
+  _encryptionKey: string
 ): void => {
-  const encoded = encryptString(tokenPayloadToString(bundle), encryptionKey);
+  const encoded = tokenPayloadToString(bundle);
   encryptedTokensBySession.set(sessionId, encoded);
 };
 
 export const getDecryptedTokenBundle = (
   sessionId: string,
-  encryptionKey: string
+  _encryptionKey: string
 ): JiraTokenBundle | null => {
   const encrypted = encryptedTokensBySession.get(sessionId);
   if (!encrypted) return null;
 
-  const decoded = decryptString(encrypted, encryptionKey);
-  return tokenPayloadFromString(decoded);
+  return tokenPayloadFromString(encrypted);
 };

@@ -1,5 +1,3 @@
-import { URLSearchParams } from "node:url";
-
 import type { JiraProviderConfig, JiraTokenBundle } from "./types";
 
 interface AtlassianTokenResponse {

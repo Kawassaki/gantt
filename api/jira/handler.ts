@@ -168,7 +168,7 @@ const handleAuthSignIn = async (
   const session = existing?.session ?? createAnonymousSession();
   const state = generateRandomToken(24);
   const codeVerifier = generatePkceVerifier();
-  const codeChallenge = generatePkceChallenge(codeVerifier);
+  const codeChallenge = await generatePkceChallenge(codeVerifier);
 
   storeOauthState({
     state,
