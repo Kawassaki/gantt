@@ -4,7 +4,7 @@ export const config = {
 
 const handler = async (req: unknown, res: unknown): Promise<void> => {
   try {
-    const module = await import("../handler");
+    const module = await import("../handler.js");
     const sharedHandler = module.default as (
       request: unknown,
       response: unknown

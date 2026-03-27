@@ -2,4 +2,4 @@ export const config = {
   runtime: "nodejs",
 };
 
-export { default } from "../handler";
+export { default } from "../handler.js";
