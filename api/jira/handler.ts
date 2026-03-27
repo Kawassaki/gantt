@@ -24,15 +24,15 @@ import {
   generateRandomToken,
 } from "../../server/jira/pkce.js";
 import {
-  consumeOauthState,
   createAnonymousSession,
   deleteJiraSession,
   getDecryptedTokenBundle,
   getJiraSession,
   storeEncryptedTokenBundle,
-  storeOauthState,
   upsertJiraSession,
 } from "../../server/jira/sessionStore.js";
+
+const JIRA_OAUTH_COOKIE_NAME = "jira_oauth_state";
 
 const jsonResponse = <T>(
   res: ServerResponse,
@@ -88,6 +88,53 @@ const requireSession = (req: IncomingMessage) => {
   if (!session) return null;
 
   return { sessionId, session };
+};
+
+interface OAuthCookiePayload {
+  state: string;
+  codeVerifier: string;
+  sessionId: string;
+  returnTo: string;
+  expiresAtMs: number;
+}
+
+const toBase64 = (value: string): string => {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(value, "utf8").toString("base64");
+  }
+  return btoa(value);
+};
+
+const fromBase64 = (value: string): string => {
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(value, "base64").toString("utf8");
+  }
+  return atob(value);
+};
+
+const createOAuthCookieHeader = (payload: OAuthCookiePayload): string => {
+  const encoded = encodeURIComponent(toBase64(JSON.stringify(payload)));
+  const secure = process.env.NODE_ENV === "production";
+  const maxAgeSeconds = 5 * 60;
+
+  return `${JIRA_OAUTH_COOKIE_NAME}=${encoded}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure ? "; Secure" : ""}`;
+};
+
+const createClearedOAuthCookieHeader = (): string => {
+  const secure = process.env.NODE_ENV === "production";
+  return `${JIRA_OAUTH_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure ? "; Secure" : ""}`;
+};
+
+const readOAuthCookie = (req: IncomingMessage): OAuthCookiePayload | null => {
+  const encoded = getCookieValue(req, JIRA_OAUTH_COOKIE_NAME);
+  if (!encoded) return null;
+
+  try {
+    const decoded = fromBase64(decodeURIComponent(encoded));
+    return JSON.parse(decoded) as OAuthCookiePayload;
+  } catch {
+    return null;
+  }
 };
 
 type JiraConfig = ReturnType<typeof loadJiraProviderConfig>;
@@ -163,16 +210,19 @@ const handleAuthSignIn = async (
   const codeVerifier = generatePkceVerifier();
   const codeChallenge = await generatePkceChallenge(codeVerifier);
 
-  storeOauthState({
+  const oauthPayload: OAuthCookiePayload = {
     state,
     codeVerifier,
     sessionId: session.id,
     returnTo,
     expiresAtMs: Date.now() + 5 * 60_000,
-  });
+  };
 
   const authUrl = buildAtlassianAuthorizeUrl(config, state, codeChallenge);
-  res.setHeader("Set-Cookie", createCookieHeader(session.id));
+  res.setHeader("Set-Cookie", [
+    createCookieHeader(session.id),
+    createOAuthCookieHeader(oauthPayload),
+  ]);
   jsonResponse(res, 200, { authUrl });
 };
 
@@ -195,8 +245,12 @@ const handleAuthCallback = async (
     return;
   }
 
-  const pendingState = consumeOauthState(state);
-  if (!pendingState || pendingState.expiresAtMs < Date.now()) {
+  const pendingState = readOAuthCookie(req);
+  if (
+    !pendingState ||
+    pendingState.state !== state ||
+    pendingState.expiresAtMs < Date.now()
+  ) {
     jsonError(res, 400, "Invalid or expired OAuth state");
     return;
   }
@@ -231,7 +285,10 @@ const handleAuthCallback = async (
     config.encryptionKey as string
   );
 
-  res.setHeader("Set-Cookie", createCookieHeader(pendingState.sessionId));
+  res.setHeader("Set-Cookie", [
+    createCookieHeader(pendingState.sessionId),
+    createClearedOAuthCookieHeader(),
+  ]);
   redirect(res, `${config.frontendBaseUrl}${pendingState.returnTo}`);
 };
 
@@ -253,7 +310,10 @@ const handleAuthMe = (req: IncomingMessage, res: ServerResponse): void => {
 const handleAuthSignOut = (req: IncomingMessage, res: ServerResponse): void => {
   const sessionId = getCookieValue(req, JIRA_SESSION_COOKIE_NAME);
   deleteJiraSession(sessionId);
-  res.setHeader("Set-Cookie", createClearedCookieHeader());
+  res.setHeader("Set-Cookie", [
+    createClearedCookieHeader(),
+    createClearedOAuthCookieHeader(),
+  ]);
   jsonResponse(res, 200, { ok: true });
 };
 
