@@ -31,13 +31,13 @@ const handler = (_req: IncomingMessage, res: ServerResponse): void => {
   );
 
   const envPresence = {
-    JIRA_PROVIDER_MODE: Boolean(process.env.JIRA_PROVIDER_MODE),
-    FRONTEND_BASE_URL: Boolean(process.env.FRONTEND_BASE_URL),
-    JIRA_CALLBACK_PATH: Boolean(process.env.JIRA_CALLBACK_PATH),
-    JIRA_CLIENT_ID: Boolean(process.env.JIRA_CLIENT_ID),
-    JIRA_CLIENT_SECRET: Boolean(process.env.JIRA_CLIENT_SECRET),
-    JIRA_TOKEN_ENCRYPTION_KEY: Boolean(process.env.JIRA_TOKEN_ENCRYPTION_KEY),
-    JIRA_SCOPES: Boolean(process.env.JIRA_SCOPES),
+    JIRA_PROVIDER_MODE: process.env.JIRA_PROVIDER_MODE,
+    FRONTEND_BASE_URL: process.env.FRONTEND_BASE_URL,
+    JIRA_CALLBACK_PATH: process.env.JIRA_CALLBACK_PATH,
+    JIRA_CLIENT_ID: process.env.JIRA_CLIENT_ID,
+    JIRA_CLIENT_SECRET: process.env.JIRA_CLIENT_SECRET,
+    JIRA_TOKEN_ENCRYPTION_KEY: process.env.JIRA_TOKEN_ENCRYPTION_KEY,
+    JIRA_SCOPES: process.env.JIRA_SCOPES,
   };
 
   const missingRequiredEnv = Object.entries(envPresence)
