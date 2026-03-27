@@ -31,8 +31,14 @@ import {
   storeEncryptedTokenBundle,
   upsertJiraSession,
 } from "../../server/jira/sessionStore.js";
+import type {
+  JiraServerSession,
+  JiraTokenBundle,
+} from "../../server/jira/types.js";
 
 const JIRA_OAUTH_COOKIE_NAME = "jira_oauth_state";
+const JIRA_SESSION_DATA_COOKIE_NAME = "jira_session_data";
+const JIRA_TOKEN_COOKIE_NAME = "jira_token_data";
 
 const jsonResponse = <T>(
   res: ServerResponse,
@@ -82,12 +88,32 @@ const getCloudIdOrThrow = (session: { cloudId?: string }): string => {
 
 const requireSession = (req: IncomingMessage) => {
   const sessionId = getCookieValue(req, JIRA_SESSION_COOKIE_NAME);
-  if (!sessionId) return null;
 
-  const session = getJiraSession(sessionId);
-  if (!session) return null;
+  if (sessionId) {
+    const session = getJiraSession(sessionId);
+    if (session) {
+      return { sessionId, session };
+    }
+  }
 
-  return { sessionId, session };
+  const sessionFromCookie = readDataCookie<SessionCookiePayload>(
+    req,
+    JIRA_SESSION_DATA_COOKIE_NAME
+  );
+  if (!sessionFromCookie?.id) return null;
+
+  const restoredSession: JiraServerSession = {
+    id: sessionFromCookie.id,
+    accountId: sessionFromCookie.accountId,
+    displayName: sessionFromCookie.displayName,
+    cloudId: sessionFromCookie.cloudId,
+  };
+  upsertJiraSession(restoredSession);
+
+  return {
+    sessionId: restoredSession.id,
+    session: restoredSession,
+  };
 };
 
 interface OAuthCookiePayload {
@@ -96,6 +122,13 @@ interface OAuthCookiePayload {
   sessionId: string;
   returnTo: string;
   expiresAtMs: number;
+}
+
+interface SessionCookiePayload {
+  id: string;
+  accountId?: string;
+  displayName?: string;
+  cloudId?: string;
 }
 
 const toBase64 = (value: string): string => {
@@ -137,16 +170,47 @@ const readOAuthCookie = (req: IncomingMessage): OAuthCookiePayload | null => {
   }
 };
 
+const createDataCookieHeader = (
+  name: string,
+  payload: object,
+  maxAgeSeconds: number
+): string => {
+  const encoded = encodeURIComponent(toBase64(JSON.stringify(payload)));
+  const secure = process.env.NODE_ENV === "production";
+  return `${name}=${encoded}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure ? "; Secure" : ""}`;
+};
+
+const createClearedDataCookieHeader = (name: string): string => {
+  const secure = process.env.NODE_ENV === "production";
+  return `${name}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure ? "; Secure" : ""}`;
+};
+
+const readDataCookie = <T>(req: IncomingMessage, name: string): T | null => {
+  const encoded = getCookieValue(req, name);
+  if (!encoded) return null;
+
+  try {
+    const decoded = fromBase64(decodeURIComponent(encoded));
+    return JSON.parse(decoded) as T;
+  } catch {
+    return null;
+  }
+};
+
 type JiraConfig = ReturnType<typeof loadJiraProviderConfig>;
 
 const getAtlassianAccessToken = async (
+  req: IncomingMessage,
+  res: ServerResponse,
   config: JiraConfig,
   sessionId: string
 ): Promise<string> => {
   validateAtlassianConfig(config);
   const encryptionKey = config.encryptionKey as string;
 
-  const tokenBundle = getDecryptedTokenBundle(sessionId, encryptionKey);
+  const tokenBundle =
+    getDecryptedTokenBundle(sessionId, encryptionKey) ??
+    readDataCookie<JiraTokenBundle>(req, JIRA_TOKEN_COOKIE_NAME);
   if (!tokenBundle) {
     throw new Error("No Jira token found for this session");
   }
@@ -165,6 +229,10 @@ const getAtlassianAccessToken = async (
     tokenBundle.refreshToken
   );
   storeEncryptedTokenBundle(sessionId, refreshed, encryptionKey);
+  res.setHeader(
+    "Set-Cookie",
+    createDataCookieHeader(JIRA_TOKEN_COOKIE_NAME, refreshed, 60 * 60 * 8)
+  );
   return refreshed.accessToken;
 };
 
@@ -192,7 +260,10 @@ const handleAuthSignIn = async (
       cloudId: "dev-cloud",
     });
 
-    res.setHeader("Set-Cookie", createCookieHeader(hydrated.id));
+    res.setHeader("Set-Cookie", [
+      createCookieHeader(hydrated.id),
+      createDataCookieHeader(JIRA_SESSION_DATA_COOKIE_NAME, hydrated, 60 * 60 * 8),
+    ]);
     jsonResponse(res, 200, {
       accountId: hydrated.accountId,
       displayName: hydrated.displayName,
@@ -221,6 +292,11 @@ const handleAuthSignIn = async (
   const authUrl = buildAtlassianAuthorizeUrl(config, state, codeChallenge);
   res.setHeader("Set-Cookie", [
     createCookieHeader(session.id),
+    createDataCookieHeader(
+      JIRA_SESSION_DATA_COOKIE_NAME,
+      { id: session.id } satisfies SessionCookiePayload,
+      60 * 60 * 8
+    ),
     createOAuthCookieHeader(oauthPayload),
   ]);
   jsonResponse(res, 200, { authUrl });
@@ -287,6 +363,17 @@ const handleAuthCallback = async (
 
   res.setHeader("Set-Cookie", [
     createCookieHeader(pendingState.sessionId),
+    createDataCookieHeader(
+      JIRA_SESSION_DATA_COOKIE_NAME,
+      {
+        id: pendingState.sessionId,
+        accountId: user.accountId,
+        displayName: user.displayName,
+        cloudId,
+      } satisfies SessionCookiePayload,
+      60 * 60 * 8
+    ),
+    createDataCookieHeader(JIRA_TOKEN_COOKIE_NAME, tokenBundle, 60 * 60 * 8),
     createClearedOAuthCookieHeader(),
   ]);
   redirect(res, `${config.frontendBaseUrl}${pendingState.returnTo}`);
@@ -312,6 +399,8 @@ const handleAuthSignOut = (req: IncomingMessage, res: ServerResponse): void => {
   deleteJiraSession(sessionId);
   res.setHeader("Set-Cookie", [
     createClearedCookieHeader(),
+    createClearedDataCookieHeader(JIRA_SESSION_DATA_COOKIE_NAME),
+    createClearedDataCookieHeader(JIRA_TOKEN_COOKIE_NAME),
     createClearedOAuthCookieHeader(),
   ]);
   jsonResponse(res, 200, { ok: true });
@@ -454,6 +543,8 @@ const routeRequest = async (
       const { searchAtlassianEpics } =
         await import("../../server/jira/atlassianApi.js");
       const accessToken = await getAtlassianAccessToken(
+        req,
+        res,
         config,
         current.sessionId
       );
@@ -477,6 +568,8 @@ const routeRequest = async (
       const { fetchAtlassianEpicDetails } =
         await import("../../server/jira/atlassianApi.js");
       const accessToken = await getAtlassianAccessToken(
+        req,
+        res,
         config,
         current.sessionId
       );
@@ -503,6 +596,8 @@ const routeRequest = async (
         await import("../../server/jira/atlassianApi.js");
       const body = await getJsonBody<{ issueKeys?: string[] }>(req);
       const accessToken = await getAtlassianAccessToken(
+        req,
+        res,
         config,
         current.sessionId
       );
