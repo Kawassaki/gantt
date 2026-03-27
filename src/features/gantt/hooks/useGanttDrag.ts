@@ -473,3 +473,9 @@ export const useGanttDrag = (
     getCursor,
   };
 };
+
+export const dragInternals = {
+  buildFlatRows,
+  buildTaskGroups,
+  computeDropTarget,
+};

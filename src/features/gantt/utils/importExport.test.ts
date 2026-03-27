@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  importExportInternals,
   downloadExportPayload,
   readJsonFile,
   validateExportPayload,
@@ -262,6 +263,255 @@ describe("importExport utilities", () => {
     ).toBeNull();
     expect(
       validateExportPayload({ ...validLegacyPayload, markers: [null] })
+    ).toBeNull();
+
+    expect(
+      validateExportPayload({
+        ...validPayload,
+        timelineDataByTab: {},
+      })
+    ).toBeNull();
+
+    expect(
+      validateExportPayload({
+        ...validPayload,
+        timelineDataByTab: {
+          "tab-1": {
+            ...validPayload.timelineDataByTab["tab-1"],
+            markers: "invalid",
+          },
+        },
+      })
+    ).toBeNull();
+
+    expect(
+      validateExportPayload({
+        ...validPayload,
+        timelineDataByTab: {
+          "tab-1": {
+            ...validPayload.timelineDataByTab["tab-1"],
+            tasks: "invalid",
+          },
+        },
+      })
+    ).toBeNull();
+
+    expect(
+      validateExportPayload({
+        ...validLegacyPayload,
+        timelineConfig: {
+          ...validLegacyPayload.timelineConfig,
+          customDateRange: "invalid",
+        },
+      })
+    ).toBeNull();
+  });
+
+  it("accepts payloads where timelineConfig optional fields are omitted", () => {
+    const minimalLegacy = {
+      ...validLegacyPayload,
+      timelineConfig: {
+        startDate: "2026-01-01",
+        endDate: "2026-01-15",
+        zoomLevel: 30,
+      },
+    };
+    const minimalTabs = {
+      ...validPayload,
+      timelineDataByTab: {
+        "tab-1": {
+          ...validPayload.timelineDataByTab["tab-1"],
+          timelineConfig: {
+            startDate: "2026-01-01",
+            endDate: "2026-01-15",
+            zoomLevel: 30,
+          },
+        },
+      },
+    };
+
+    expect(validateExportPayload(minimalLegacy)).toEqual(minimalLegacy);
+    expect(validateExportPayload(minimalTabs)).toEqual(minimalTabs);
+  });
+
+  it("exposes parser internals for edge validation branches", () => {
+    expect(importExportInternals.isString("x")).toBe(true);
+    expect(importExportInternals.isString(1 as never)).toBe(false);
+
+    expect(importExportInternals.isJsonObject({ a: 1 })).toBe(true);
+    expect(importExportInternals.isJsonObject(null)).toBe(false);
+    expect(importExportInternals.isJsonObject([1] as never)).toBe(false);
+
+    expect(importExportInternals.isIsoDate("2026-01-01")).toBe(true);
+    expect(importExportInternals.isIsoDate("01-01-2026")).toBe(false);
+
+    expect(importExportInternals.parseSubtask(null)).toBeNull();
+    expect(
+      importExportInternals.parseTask({
+        id: "t1",
+        name: "T1",
+        startDate: "2026-01-01",
+        endDate: "2026-01-02",
+        color: "#111",
+        progress: 0,
+        subtasks: [null],
+      })
+    ).toBeNull();
+    expect(importExportInternals.parseMarker(null)).toBeNull();
+
+    expect(
+      importExportInternals.parseTimelineConfig({
+        startDate: "2026-01-01",
+        endDate: "2026-01-10",
+        zoomLevel: 10,
+      })
+    ).toEqual({
+      startDate: "2026-01-01",
+      endDate: "2026-01-10",
+      zoomLevel: 10,
+    });
+
+    expect(
+      importExportInternals.parseTimelineTab({
+        id: "tab-1",
+        title: "Timeline",
+        color: "#0052CC",
+      })
+    ).toEqual({ id: "tab-1", title: "Timeline", color: "#0052CC" });
+
+    expect(
+      importExportInternals.parseTimelineTabData({
+        tasks: [],
+        markers: [],
+        timelineConfig: {
+          startDate: "2026-01-01",
+          endDate: "2026-01-03",
+          zoomLevel: 20,
+        },
+      })
+    ).toEqual({
+      tasks: [],
+      markers: [],
+      timelineConfig: {
+        startDate: "2026-01-01",
+        endDate: "2026-01-03",
+        zoomLevel: 20,
+      },
+    });
+
+    expect(importExportInternals.parseLegacyPayload({ version: 2 })).toBeNull();
+    expect(importExportInternals.parseTabPayload({ version: 1 })).toBeNull();
+
+    expect(
+      importExportInternals.parseSubtask({
+        id: 1,
+        name: "S",
+        startDate: "2026-01-01",
+        endDate: "2026-01-02",
+        color: "#000",
+      } as never)
+    ).toBeNull();
+    expect(
+      importExportInternals.parseSubtask({
+        id: "s",
+        name: 1,
+        startDate: "2026-01-01",
+        endDate: "2026-01-02",
+        color: "#000",
+      } as never)
+    ).toBeNull();
+
+    expect(
+      importExportInternals.parseTask({
+        id: "t",
+        name: "T",
+        startDate: "bad",
+        endDate: "2026-01-02",
+        color: "#000",
+        progress: 0,
+        subtasks: [],
+      })
+    ).toBeNull();
+    expect(
+      importExportInternals.parseTask({
+        id: "t",
+        name: "T",
+        startDate: "2026-01-01",
+        endDate: "bad",
+        color: "#000",
+        progress: 0,
+        subtasks: [],
+      })
+    ).toBeNull();
+    expect(
+      importExportInternals.parseTask({
+        id: "t",
+        name: "T",
+        startDate: "2026-01-01",
+        endDate: "2026-01-02",
+        color: "#000",
+        progress: "0",
+        subtasks: [],
+      } as never)
+    ).toBeNull();
+
+    expect(
+      importExportInternals.parseMarker({
+        id: "m",
+        date: "bad",
+        label: "L",
+        color: "#000",
+      })
+    ).toBeNull();
+
+    expect(
+      importExportInternals.parseTimelineConfig({
+        startDate: "2026-01-01",
+        endDate: "2026-01-02",
+        zoomLevel: "20",
+      } as never)
+    ).toBeNull();
+    expect(
+      importExportInternals.parseTimelineConfig({
+        startDate: "2026-01-01",
+        endDate: "2026-01-02",
+        zoomLevel: 20,
+        viewMode: "quarter",
+      } as never)
+    ).toBeNull();
+
+    expect(
+      importExportInternals.parseTimelineTab({
+        id: "tab-1",
+        title: "Timeline",
+        color: 1,
+      } as never)
+    ).toBeNull();
+
+    expect(
+      importExportInternals.parseTimelineTabData({
+        tasks: [],
+        markers: [],
+        timelineConfig: null,
+      })
+    ).toBeNull();
+
+    expect(
+      importExportInternals.parseLegacyPayload({
+        version: 1,
+        tasks: [],
+        markers: [],
+        timelineConfig: null,
+      })
+    ).toBeNull();
+
+    expect(
+      importExportInternals.parseTabPayload({
+        version: 2,
+        tabs: [],
+        activeTabId: 1,
+        timelineDataByTab: {},
+      } as never)
     ).toBeNull();
   });
 
