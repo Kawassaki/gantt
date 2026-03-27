@@ -8,7 +8,10 @@ import {
   fetchAtlassianIssueSync,
   searchAtlassianEpics,
 } from "../../server/jira/atlassianApi";
-import { loadJiraProviderConfig, validateAtlassianConfig } from "../../server/jira/config";
+import {
+  loadJiraProviderConfig,
+  validateAtlassianConfig,
+} from "../../server/jira/config";
 import {
   createClearedCookieHeader,
   createCookieHeader,
@@ -22,7 +25,11 @@ import {
   exchangeCodeForTokenBundle,
   refreshTokenBundle,
 } from "../../server/jira/oauthClient";
-import { generatePkceChallenge, generatePkceVerifier, generateRandomToken } from "../../server/jira/pkce";
+import {
+  generatePkceChallenge,
+  generatePkceVerifier,
+  generateRandomToken,
+} from "../../server/jira/pkce";
 import {
   consumeOauthState,
   createAnonymousSession,
@@ -34,13 +41,21 @@ import {
   upsertJiraSession,
 } from "../../server/jira/sessionStore";
 
-const jsonResponse = <T>(res: ServerResponse, status: number, data: T): void => {
+const jsonResponse = <T>(
+  res: ServerResponse,
+  status: number,
+  data: T
+): void => {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify({ data }));
 };
 
-const jsonError = (res: ServerResponse, status: number, message: string): void => {
+const jsonError = (
+  res: ServerResponse,
+  status: number,
+  message: string
+): void => {
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json");
   res.end(JSON.stringify({ error: message }));
@@ -104,7 +119,11 @@ const getAtlassianAccessToken = async (
     throw new Error("Jira token expired and no refresh token available");
   }
 
-  const refreshed = await refreshTokenBundle(fetch, config, tokenBundle.refreshToken);
+  const refreshed = await refreshTokenBundle(
+    fetch,
+    config,
+    tokenBundle.refreshToken
+  );
   storeEncryptedTokenBundle(sessionId, refreshed, encryptionKey);
   return refreshed.accessToken;
 };
@@ -197,7 +216,11 @@ const handleAuthCallback = async (
   );
 
   const cloudId = await fetchAtlassianCloudId(fetch, tokenBundle.accessToken);
-  const user = await fetchAtlassianCurrentUser(fetch, tokenBundle.accessToken, cloudId);
+  const user = await fetchAtlassianCurrentUser(
+    fetch,
+    tokenBundle.accessToken,
+    cloudId
+  );
 
   upsertJiraSession({
     id: pendingState.sessionId,
@@ -238,7 +261,11 @@ const handleAuthSignOut = (req: IncomingMessage, res: ServerResponse): void => {
   jsonResponse(res, 200, { ok: true });
 };
 
-const handleHealth = (res: ServerResponse, config: JiraConfig, callbackUrl: string): void => {
+const handleHealth = (
+  res: ServerResponse,
+  config: JiraConfig,
+  callbackUrl: string
+): void => {
   const atlassianConfigReady =
     Boolean(config.clientId) &&
     Boolean(config.clientSecret) &&
@@ -255,7 +282,10 @@ const handleHealth = (res: ServerResponse, config: JiraConfig, callbackUrl: stri
   });
 };
 
-const handleEpicSearchMock = (req: IncomingMessage, res: ServerResponse): void => {
+const handleEpicSearchMock = (
+  req: IncomingMessage,
+  res: ServerResponse
+): void => {
   const query = getSearchParam(req, "query").trim().toUpperCase();
   const results = jiraDevEpics
     .filter((epicDetails) => {
@@ -264,15 +294,23 @@ const handleEpicSearchMock = (req: IncomingMessage, res: ServerResponse): void =
       const title = epicDetails.epic.title.toUpperCase();
       return key.includes(query) || title.includes(query);
     })
-    .map((epicDetails) => ({ key: epicDetails.epic.key, title: epicDetails.epic.title }));
+    .map((epicDetails) => ({
+      key: epicDetails.epic.key,
+      title: epicDetails.epic.title,
+    }));
 
   jsonResponse(res, 200, results);
 };
 
-const handleEpicDetailsMock = (req: IncomingMessage, res: ServerResponse): void => {
+const handleEpicDetailsMock = (
+  req: IncomingMessage,
+  res: ServerResponse
+): void => {
   const pathname = getPathname(req);
   const epicKey = decodeURIComponent(pathname.replace("/api/jira/epics/", ""));
-  const details = jiraDevEpics.find((epicDetails) => epicDetails.epic.key === epicKey);
+  const details = jiraDevEpics.find(
+    (epicDetails) => epicDetails.epic.key === epicKey
+  );
 
   if (!details) {
     jsonError(res, 404, `Epic ${epicKey} not found`);
@@ -288,11 +326,16 @@ const handleIssueSyncMock = async (
 ): Promise<void> => {
   const body = await getJsonBody<{ issueKeys?: string[] }>(req);
   const issueKeys = body.issueKeys ?? [];
-  const updates = flattenJiraIssues().filter((issue) => issueKeys.includes(issue.key));
+  const updates = flattenJiraIssues().filter((issue) =>
+    issueKeys.includes(issue.key)
+  );
   jsonResponse(res, 200, updates);
 };
 
-const routeRequest = async (req: IncomingMessage, res: ServerResponse): Promise<boolean> => {
+const routeRequest = async (
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<boolean> => {
   const config = loadJiraProviderConfig();
   const callbackPath = config.callbackPath;
   const callbackUrl = `${config.frontendBaseUrl}${callbackPath}`;
@@ -315,7 +358,11 @@ const routeRequest = async (req: IncomingMessage, res: ServerResponse): Promise<
     pathname !== "/api/jira/health"
   ) {
     const current = requireSession(req);
-    if (!current || !current.session.accountId || !current.session.displayName) {
+    if (
+      !current ||
+      !current.session.accountId ||
+      !current.session.displayName
+    ) {
       jsonError(res, 401, "No Jira session");
       return true;
     }
@@ -348,10 +395,18 @@ const routeRequest = async (req: IncomingMessage, res: ServerResponse): Promise<
     if (config.providerMode === "mock") {
       handleEpicSearchMock(req, res);
     } else {
-      const accessToken = await getAtlassianAccessToken(config, current.sessionId);
+      const accessToken = await getAtlassianAccessToken(
+        config,
+        current.sessionId
+      );
       const query = getSearchParam(req, "query");
       const cloudId = getCloudIdOrThrow(current.session);
-      const results = await searchAtlassianEpics(fetch, accessToken, cloudId, query);
+      const results = await searchAtlassianEpics(
+        fetch,
+        accessToken,
+        cloudId,
+        query
+      );
       jsonResponse(res, 200, results);
     }
     return true;
@@ -361,10 +416,20 @@ const routeRequest = async (req: IncomingMessage, res: ServerResponse): Promise<
     if (config.providerMode === "mock") {
       handleEpicDetailsMock(req, res);
     } else {
-      const accessToken = await getAtlassianAccessToken(config, current.sessionId);
+      const accessToken = await getAtlassianAccessToken(
+        config,
+        current.sessionId
+      );
       const cloudId = getCloudIdOrThrow(current.session);
-      const epicKey = decodeURIComponent(pathname.replace("/api/jira/epics/", ""));
-      const details = await fetchAtlassianEpicDetails(fetch, accessToken, cloudId, epicKey);
+      const epicKey = decodeURIComponent(
+        pathname.replace("/api/jira/epics/", "")
+      );
+      const details = await fetchAtlassianEpicDetails(
+        fetch,
+        accessToken,
+        cloudId,
+        epicKey
+      );
       jsonResponse(res, 200, details);
     }
     return true;
@@ -375,7 +440,10 @@ const routeRequest = async (req: IncomingMessage, res: ServerResponse): Promise<
       await handleIssueSyncMock(req, res);
     } else {
       const body = await getJsonBody<{ issueKeys?: string[] }>(req);
-      const accessToken = await getAtlassianAccessToken(config, current.sessionId);
+      const accessToken = await getAtlassianAccessToken(
+        config,
+        current.sessionId
+      );
       const cloudId = getCloudIdOrThrow(current.session);
       const updates = await fetchAtlassianIssueSync(
         fetch,
@@ -392,7 +460,10 @@ const routeRequest = async (req: IncomingMessage, res: ServerResponse): Promise<
   return true;
 };
 
-const handler = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+const handler = async (
+  req: IncomingMessage,
+  res: ServerResponse
+): Promise<void> => {
   try {
     const handled = await routeRequest(req, res);
     if (!handled) {

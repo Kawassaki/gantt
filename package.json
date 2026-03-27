@@ -10,7 +10,7 @@
     "lint": "pnpm lint:ox && pnpm lint:eslint",
     "lint:eslint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "lint:ox": "oxlint --deny-warnings src",
+    "lint:ox": "oxlint --deny-warnings src api",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
