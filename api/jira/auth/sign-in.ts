@@ -12,7 +12,9 @@ const handler = async (req: unknown, res: unknown): Promise<void> => {
     await sharedHandler(req, res);
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Sign-in function bootstrap failed";
+      error instanceof Error
+        ? error.message
+        : "Sign-in function bootstrap failed";
 
     const response = res as {
       statusCode: number;

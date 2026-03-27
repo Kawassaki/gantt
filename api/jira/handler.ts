@@ -208,9 +208,8 @@ const handleAuthCallback = async (
     pendingState.codeVerifier
   );
 
-  const { fetchAtlassianCloudId, fetchAtlassianCurrentUser } = await import(
-    "../../server/jira/atlassianApi.js"
-  );
+  const { fetchAtlassianCloudId, fetchAtlassianCurrentUser } =
+    await import("../../server/jira/atlassianApi.js");
 
   const cloudId = await fetchAtlassianCloudId(fetch, tokenBundle.accessToken);
   const user = await fetchAtlassianCurrentUser(
@@ -392,9 +391,8 @@ const routeRequest = async (
     if (config.providerMode === "mock") {
       handleEpicSearchMock(req, res);
     } else {
-      const { searchAtlassianEpics } = await import(
-        "../../server/jira/atlassianApi.js"
-      );
+      const { searchAtlassianEpics } =
+        await import("../../server/jira/atlassianApi.js");
       const accessToken = await getAtlassianAccessToken(
         config,
         current.sessionId
@@ -416,9 +414,8 @@ const routeRequest = async (
     if (config.providerMode === "mock") {
       handleEpicDetailsMock(req, res);
     } else {
-      const { fetchAtlassianEpicDetails } = await import(
-        "../../server/jira/atlassianApi.js"
-      );
+      const { fetchAtlassianEpicDetails } =
+        await import("../../server/jira/atlassianApi.js");
       const accessToken = await getAtlassianAccessToken(
         config,
         current.sessionId
@@ -442,9 +439,8 @@ const routeRequest = async (
     if (config.providerMode === "mock") {
       await handleIssueSyncMock(req, res);
     } else {
-      const { fetchAtlassianIssueSync } = await import(
-        "../../server/jira/atlassianApi.js"
-      );
+      const { fetchAtlassianIssueSync } =
+        await import("../../server/jira/atlassianApi.js");
       const body = await getJsonBody<{ issueKeys?: string[] }>(req);
       const accessToken = await getAtlassianAccessToken(
         config,
