@@ -219,37 +219,20 @@ const getAtlassianAccessToken = async (
   validateAtlassianConfig(config);
   const encryptionKey = config.encryptionKey as string;
 
-  const tokenBundle =
-    getDecryptedTokenBundle(sessionId, encryptionKey) ??
-    (() => {
-      const cookieToken = readDataCookie<TokenCookiePayload>(
-        req,
-        JIRA_TOKEN_COOKIE_NAME
-      );
-      if (!cookieToken) return null;
-      if (!cookieToken.accessToken || !cookieToken.expiresAtMs) return null;
-      return {
-        accessToken: cookieToken.accessToken,
-        refreshToken: cookieToken.refreshToken,
-        expiresAtMs: cookieToken.expiresAtMs,
-      } satisfies JiraTokenBundle;
-    })();
-  if (!tokenBundle) {
-    throw new Error("No Jira token found for this session");
-  }
+  const cookieToken = readDataCookie<TokenCookiePayload>(
+    req,
+    JIRA_TOKEN_COOKIE_NAME
+  );
+  const tokenBundle = getDecryptedTokenBundle(sessionId, encryptionKey);
 
-  if (tokenBundle.expiresAtMs > Date.now() + 15_000) {
+  if (tokenBundle && tokenBundle.expiresAtMs > Date.now() + 15_000) {
     return tokenBundle.accessToken;
   }
 
-  const refreshTokenFromCookie = readDataCookie<TokenCookiePayload>(
-    req,
-    JIRA_TOKEN_COOKIE_NAME
-  )?.refreshToken;
-  const refreshToken = tokenBundle.refreshToken ?? refreshTokenFromCookie;
+  const refreshToken = tokenBundle?.refreshToken ?? cookieToken?.refreshToken;
 
   if (!refreshToken) {
-    throw new Error("Jira token expired and no refresh token available");
+    throw new Error("No Jira token found for this session");
   }
 
   const refreshed = await refreshTokenBundle(fetch, config, refreshToken);
