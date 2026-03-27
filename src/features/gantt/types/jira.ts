@@ -38,6 +38,7 @@ export interface JiraSyncState {
 }
 
 export interface JiraImportNotice {
+  kind: "fallback-dates" | "duplicate-epic";
   fallbackCount: number;
   message: string;
 }

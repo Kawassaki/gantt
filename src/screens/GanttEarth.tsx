@@ -6,12 +6,10 @@ import {
   Laptop,
   LoaderCircle,
   LocateFixed,
-  LogIn,
   LogOut,
   Moon,
   Pipette,
   Plus,
-  RefreshCw,
   Search,
   Sun,
   Trash2,
@@ -54,6 +52,7 @@ import {
   deleteSubtaskAtom,
   deleteTimelineTabAtom,
   createTimelineTabAtom,
+  clearJiraImportNoticeAtom,
   failJiraSignInAtom,
   failJiraSyncAtom,
   importJiraEpicAtom,
@@ -72,8 +71,8 @@ import {
 import {
   jiraAuthStatusAtom,
   jiraImportNoticeAtom,
+  jiraIssueLinksAtom,
   jiraLinkedIssueKeysAtom,
-  jiraSyncStateAtom,
   jiraUserAtom,
 } from "../features/gantt/state/jiraStore";
 import {
@@ -238,6 +237,48 @@ const TODAY_MARKER_ID = "__today_marker__";
 const MARKER_MIN_VISIBLE_X = 12;
 const CHART_TOP_GAP = 28;
 
+const JiraLogoIcon = ({
+  size = 12,
+  color = "currentColor",
+}: {
+  size?: number;
+  color?: string;
+}) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 48 48"
+    xmlns="http://www.w3.org/2000/svg"
+    aria-hidden="true"
+    focusable="false"
+  >
+    <path
+      d="M5.5,22.9722h0a8.7361,8.7361,0,0,0,8.7361,8.7361h2.0556v2.0556A8.7361,8.7361,0,0,0,25.0278,42.5h0V22.9722Z"
+      fill="none"
+      stroke={color}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={3}
+    />
+    <path
+      d="M14.2361,14.2361h0a8.7361,8.7361,0,0,0,8.7361,8.7361h2.0556v2.0556a8.7361,8.7361,0,0,0,8.7361,8.7361h0V14.2361Z"
+      fill="none"
+      stroke={color}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={3}
+    />
+    <path
+      d="M22.9722,5.5h0a8.7361,8.7361,0,0,0,8.7361,8.7361h2.0556v2.0556A8.7361,8.7361,0,0,0,42.5,25.0278h0V5.5Z"
+      fill="none"
+      stroke={color}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth={3}
+    />
+  </svg>
+);
+
 export default function GanttEarth() {
   const [themePreference, setThemePreference] = useState<ThemePreference>(
     () => {
@@ -262,7 +303,7 @@ export default function GanttEarth() {
   const setActiveTabId = useSetAtom(activeTabIdAtom);
   const jiraAuthStatus = useAtomValue(jiraAuthStatusAtom);
   const jiraUser = useAtomValue(jiraUserAtom);
-  const jiraSyncState = useAtomValue(jiraSyncStateAtom);
+  const jiraIssueLinks = useAtomValue(jiraIssueLinksAtom);
   const jiraLinkedIssueKeys = useAtomValue(jiraLinkedIssueKeysAtom);
   const jiraLinkedIssueKeysSignature = useMemo(
     () => [...new Set(jiraLinkedIssueKeys)].sort().join(","),
@@ -355,6 +396,7 @@ export default function GanttEarth() {
   const startJiraSync = useSetAtom(startJiraSyncAtom);
   const completeJiraSync = useSetAtom(completeJiraSyncAtom);
   const failJiraSync = useSetAtom(failJiraSyncAtom);
+  const clearJiraImportNotice = useSetAtom(clearJiraImportNoticeAtom);
   const [jiraSearchQuery, setJiraSearchQuery] = useState("");
   const [jiraSearchResults, setJiraSearchResults] = useState<
     JiraEpicSearchItem[]
@@ -362,6 +404,10 @@ export default function GanttEarth() {
   const [isSearchingJira, setIsSearchingJira] = useState(false);
   const [jiraSearchError, setJiraSearchError] = useState<string | null>(null);
   const [importingEpicKey, setImportingEpicKey] = useState<string | null>(null);
+  const [pendingJiraScrollEpicKey, setPendingJiraScrollEpicKey] = useState<
+    string | null
+  >(null);
+  const [isJiraNoticeDialogOpen, setIsJiraNoticeDialogOpen] = useState(false);
   useKeyboardShortcuts();
 
   const handleJiraSignIn = useCallback(async () => {
@@ -396,6 +442,7 @@ export default function GanttEarth() {
       try {
         const details = await jiraClient.getEpicDetails(epic.key);
         importJiraEpic(details);
+        setPendingJiraScrollEpicKey(epic.key);
         setJiraSearchQuery("");
         setJiraSearchResults([]);
       } catch {
@@ -713,6 +760,11 @@ export default function GanttEarth() {
       lastRowClickRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (!jiraImportNotice) return;
+    setIsJiraNoticeDialogOpen(true);
+  }, [jiraImportNotice]);
 
   useEffect(() => {
     if (jiraAuthStatus === "signed-in") return;
@@ -1059,6 +1111,25 @@ export default function GanttEarth() {
     return offsets;
   }, [displayTasks]);
 
+  useEffect(() => {
+    if (!pendingJiraScrollEpicKey) return;
+
+    const epicLink = jiraIssueLinks[pendingJiraScrollEpicKey];
+    if (!epicLink?.taskId) return;
+
+    const taskIndex = displayTasks.findIndex(
+      (task) => task.id === epicLink.taskId
+    );
+    if (taskIndex < 0) return;
+
+    const viewport = rightRef.current;
+    if (!viewport) return;
+
+    const scrollTop = Math.max(0, CHART_TOP_GAP + rowOffsets[taskIndex] - 52);
+    viewport.scrollTo({ top: scrollTop, behavior: "smooth" });
+    setPendingJiraScrollEpicKey(null);
+  }, [displayTasks, jiraIssueLinks, pendingJiraScrollEpicKey, rowOffsets]);
+
   const renderThemeControl = ({
     containerBg,
     containerBorder,
@@ -1239,22 +1310,108 @@ export default function GanttEarth() {
                   C&C Gantt
                 </strong>
               </div>
-              <span
-                style={{
-                  fontSize: 10,
-                  letterSpacing: "0.08em",
-                  textTransform: "uppercase",
-                  opacity: 0.55,
-                  padding: "3px 8px",
-                  borderRadius: 999,
-                  border: `1px solid ${C.ruleLight}`,
-                  background:
-                    themeMode === "dark"
-                      ? "rgba(13,17,23,0.5)"
-                      : "rgba(255,255,255,0.72)",
-                }}
-              >
-                Command Strip
+              <span>
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  {jiraAuthStatus !== "signed-in" ? (
+                    <button
+                      onClick={handleJiraSignIn}
+                      disabled={jiraAuthStatus === "loading"}
+                      style={{
+                        border: "1px solid rgba(38,132,255,0.55)",
+                        background:
+                          themeMode === "dark"
+                            ? "linear-gradient(135deg, #0f6fff 0%, #2684ff 55%, #57a6ff 100%)"
+                            : "linear-gradient(135deg, #0f6fff 0%, #2684ff 55%, #4c9aff 100%)",
+                        color: "#ffffff",
+                        borderRadius: 999,
+                        height: 26,
+                        padding: "0 11px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        letterSpacing: "0.04em",
+                        display: "inline-flex",
+                        alignItems: "center",
+                        gap: 5,
+                        cursor:
+                          jiraAuthStatus === "loading" ? "wait" : "pointer",
+                        opacity: jiraAuthStatus === "loading" ? 0.8 : 1,
+                        boxShadow:
+                          themeMode === "dark"
+                            ? "0 6px 16px rgba(38,132,255,0.42)"
+                            : "0 6px 14px rgba(38,132,255,0.33)",
+                      }}
+                      title="Sign in with Jira"
+                    >
+                      {jiraAuthStatus === "loading" ? (
+                        <LoaderCircle size={12} className="animate-spin" />
+                      ) : (
+                        <JiraLogoIcon size={16} />
+                      )}
+                      Connect with Jira
+                    </button>
+                  ) : (
+                    <>
+                      <div
+                        style={{
+                          border: "1px solid rgba(38,132,255,0.55)",
+                          background:
+                            themeMode === "dark"
+                              ? "linear-gradient(135deg, #0f6fff 0%, #2684ff 55%, #57a6ff 100%)"
+                              : "linear-gradient(135deg, #0f6fff 0%, #2684ff 55%, #4c9aff 100%)",
+                          color: "#ffffff",
+                          borderRadius: 999,
+                          height: 26,
+                          padding: "0 11px",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          letterSpacing: "0.04em",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          gap: 5,
+                          maxWidth: 170,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          textTransform: "none",
+                          opacity: 1,
+                          boxShadow:
+                            themeMode === "dark"
+                              ? "0 6px 16px rgba(38,132,255,0.42)"
+                              : "0 6px 14px rgba(38,132,255,0.33)",
+                        }}
+                        title={jiraUser?.displayName ?? "Jira User"}
+                      >
+                        <JiraLogoIcon size={16} />
+                        {jiraUser?.displayName ?? "Jira User"}
+                      </div>
+                      <button
+                        onClick={handleJiraSignOut}
+                        style={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: 999,
+                          border: `1px solid ${C.ruleLight}`,
+                          background: "transparent",
+                          color: C.charcoal,
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          cursor: "pointer",
+                        }}
+                        title="Sign out from Jira"
+                        aria-label="Sign out from Jira"
+                      >
+                        <LogOut size={11} />
+                      </button>
+                    </>
+                  )}
+                </span>
               </span>
             </div>
             <div
@@ -1394,138 +1551,13 @@ export default function GanttEarth() {
               display: "flex",
               flexDirection: "column",
               justifyContent: "center",
-              width: "308px",
+              width: "fit-content",
               gap: 8,
               paddingLeft: 12,
               borderLeft: `1px solid ${C.ruleLight}`,
               alignItems: "flex-end",
             }}
           >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                width: "100%",
-                justifyContent: "flex-end",
-              }}
-            >
-              {jiraAuthStatus !== "signed-in" ? (
-                <button
-                  onClick={handleJiraSignIn}
-                  disabled={jiraAuthStatus === "loading"}
-                  style={{
-                    border: `1px solid ${C.ruleLight}`,
-                    background:
-                      themeMode === "dark"
-                        ? "rgba(13,17,23,0.72)"
-                        : "rgba(255,255,255,0.9)",
-                    color: C.charcoal,
-                    borderRadius: 999,
-                    height: 30,
-                    padding: "0 12px",
-                    fontSize: 11,
-                    fontWeight: 700,
-                    letterSpacing: "0.05em",
-                    textTransform: "uppercase",
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: 6,
-                    cursor: jiraAuthStatus === "loading" ? "wait" : "pointer",
-                    opacity: jiraAuthStatus === "loading" ? 0.8 : 1,
-                  }}
-                  title="Sign in with Jira"
-                >
-                  {jiraAuthStatus === "loading" ? (
-                    <LoaderCircle size={13} className="animate-spin" />
-                  ) : (
-                    <LogIn size={13} />
-                  )}
-                  Connect Jira
-                </button>
-              ) : (
-                <>
-                  <div
-                    style={{
-                      height: 30,
-                      borderRadius: 999,
-                      border: `1px solid ${C.ruleLight}`,
-                      background:
-                        themeMode === "dark"
-                          ? "rgba(13,17,23,0.72)"
-                          : "rgba(255,255,255,0.9)",
-                      padding: "0 10px",
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 6,
-                      fontSize: 11,
-                      fontWeight: 600,
-                      maxWidth: 190,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
-                    }}
-                    title={jiraUser?.displayName ?? "Jira User"}
-                  >
-                    <Check size={12} color={C.terracotta} />
-                    {jiraUser?.displayName ?? "Jira User"}
-                  </div>
-                  <button
-                    onClick={handleJiraSignOut}
-                    style={{
-                      width: 30,
-                      height: 30,
-                      borderRadius: 999,
-                      border: `1px solid ${C.ruleLight}`,
-                      background: "transparent",
-                      color: C.charcoal,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      cursor: "pointer",
-                    }}
-                    title="Sign out from Jira"
-                    aria-label="Sign out from Jira"
-                  >
-                    <LogOut size={13} />
-                  </button>
-                </>
-              )}
-            </div>
-            <div
-              style={{
-                width: "100%",
-                display: "flex",
-                justifyContent: "flex-end",
-                fontSize: 10,
-                letterSpacing: "0.04em",
-                textTransform: "uppercase",
-                opacity: 0.7,
-                gap: 6,
-                alignItems: "center",
-                minHeight: 14,
-              }}
-            >
-              {jiraAuthStatus === "signed-in" ? (
-                <>
-                  <RefreshCw
-                    size={11}
-                    style={{
-                      animation: jiraSyncState.isSyncing
-                        ? "earth-subrow-in 0.5s linear infinite"
-                        : "none",
-                    }}
-                  />
-                  {jiraSyncState.isSyncing
-                    ? "Syncing Jira"
-                    : jiraSyncState.lastSyncedAt
-                      ? "Jira synced"
-                      : "Ready to sync"}
-                </>
-              ) : (
-                "Jira disconnected"
-              )}
-            </div>
             {renderThemeControl({
               containerBg:
                 themeMode === "dark"
@@ -1595,133 +1627,151 @@ export default function GanttEarth() {
             )}
           </div>
           <div style={{ width: "100%", position: "relative" }}>
-            <Search
-              size={12}
-              style={{
-                position: "absolute",
-                left: 8,
-                top: "50%",
-                transform: "translateY(-50%)",
-                opacity: 0.5,
-              }}
-            />
-            <input
-              value={jiraSearchQuery}
-              onChange={(e) => setJiraSearchQuery(e.currentTarget.value)}
-              disabled={
-                jiraAuthStatus !== "signed-in" || importingEpicKey !== null
-              }
-              placeholder={
-                jiraAuthStatus === "signed-in"
-                  ? "Search epic by key or title"
-                  : "Sign in to search Jira epics"
-              }
-              style={{
-                width: "100%",
-                height: 28,
-                borderRadius: 8,
-                border: `1px solid ${C.ruleLight}`,
-                background:
-                  themeMode === "dark"
-                    ? "rgba(13,17,23,0.72)"
-                    : "rgba(255,255,255,0.95)",
-                color: C.charcoal,
-                padding: "0 10px 0 28px",
-                fontSize: 12,
-                outline: "none",
-              }}
-            />
-            {showJiraSearchDropdown && (
+            {jiraAuthStatus === "signed-in" ? (
+              <>
+                <Search
+                  size={12}
+                  style={{
+                    position: "absolute",
+                    left: 8,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    opacity: 0.5,
+                  }}
+                />
+                <input
+                  value={jiraSearchQuery}
+                  onChange={(e) => setJiraSearchQuery(e.currentTarget.value)}
+                  disabled={importingEpicKey !== null}
+                  placeholder="Search epic by key or title"
+                  style={{
+                    width: "100%",
+                    height: 28,
+                    borderRadius: 8,
+                    border: `1px solid ${C.ruleLight}`,
+                    background:
+                      themeMode === "dark"
+                        ? "rgba(13,17,23,0.72)"
+                        : "rgba(255,255,255,0.95)",
+                    color: C.charcoal,
+                    padding: "0 10px 0 28px",
+                    fontSize: 12,
+                    outline: "none",
+                  }}
+                />
+                {showJiraSearchDropdown && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 34,
+                      left: 0,
+                      right: 0,
+                      borderRadius: 10,
+                      border: `1px solid ${C.ruleLight}`,
+                      background:
+                        themeMode === "dark"
+                          ? "rgba(13,17,23,0.96)"
+                          : "rgba(255,255,255,0.98)",
+                      boxShadow:
+                        themeMode === "dark"
+                          ? "0 14px 36px rgba(0,0,0,0.45)"
+                          : "0 14px 26px rgba(9,30,66,0.14)",
+                      zIndex: 95,
+                      maxHeight: 220,
+                      overflow: "auto",
+                    }}
+                  >
+                    {isSearchingJira ? (
+                      <div
+                        style={{
+                          padding: "10px 12px",
+                          fontSize: 12,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          opacity: 0.7,
+                        }}
+                      >
+                        <LoaderCircle size={12} className="animate-spin" />
+                        Searching Jira...
+                      </div>
+                    ) : jiraSearchResults.length === 0 ? (
+                      <div
+                        style={{
+                          padding: "10px 12px",
+                          fontSize: 12,
+                          opacity: 0.7,
+                        }}
+                      >
+                        No epic found for this query.
+                      </div>
+                    ) : (
+                      jiraSearchResults.map((epic) => (
+                        <button
+                          key={epic.key}
+                          onClick={() => handleSelectEpic(epic)}
+                          disabled={importingEpicKey === epic.key}
+                          style={{
+                            width: "100%",
+                            border: "none",
+                            borderBottom: `1px solid ${C.ruleLight}`,
+                            background: "transparent",
+                            color: C.charcoal,
+                            textAlign: "left",
+                            padding: "10px 12px",
+                            cursor: "pointer",
+                            display: "flex",
+                            flexDirection: "column",
+                            gap: 2,
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 700,
+                              letterSpacing: "0.04em",
+                            }}
+                          >
+                            {epic.key}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 12,
+                              opacity: 0.8,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {importingEpicKey === epic.key
+                              ? "Importing..."
+                              : epic.title}
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </>
+            ) : (
               <div
                 style={{
-                  position: "absolute",
-                  top: 34,
-                  left: 0,
-                  right: 0,
-                  borderRadius: 10,
-                  border: `1px solid ${C.ruleLight}`,
+                  width: "100%",
+                  height: 28,
+                  borderRadius: 8,
+                  border: `1px dashed ${C.ruleLight}`,
                   background:
                     themeMode === "dark"
-                      ? "rgba(13,17,23,0.96)"
-                      : "rgba(255,255,255,0.98)",
-                  boxShadow:
-                    themeMode === "dark"
-                      ? "0 14px 36px rgba(0,0,0,0.45)"
-                      : "0 14px 26px rgba(9,30,66,0.14)",
-                  zIndex: 95,
-                  maxHeight: 220,
-                  overflow: "auto",
+                      ? "rgba(13,17,23,0.52)"
+                      : "rgba(255,255,255,0.62)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 11,
+                  opacity: 0.7,
                 }}
               >
-                {isSearchingJira ? (
-                  <div
-                    style={{
-                      padding: "10px 12px",
-                      fontSize: 12,
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                      opacity: 0.7,
-                    }}
-                  >
-                    <LoaderCircle size={12} className="animate-spin" />
-                    Searching Jira...
-                  </div>
-                ) : jiraSearchResults.length === 0 ? (
-                  <div
-                    style={{
-                      padding: "10px 12px",
-                      fontSize: 12,
-                      opacity: 0.7,
-                    }}
-                  >
-                    No epic found for this query.
-                  </div>
-                ) : (
-                  jiraSearchResults.map((epic) => (
-                    <button
-                      key={epic.key}
-                      onClick={() => handleSelectEpic(epic)}
-                      disabled={importingEpicKey === epic.key}
-                      style={{
-                        width: "100%",
-                        border: "none",
-                        borderBottom: `1px solid ${C.ruleLight}`,
-                        background: "transparent",
-                        color: C.charcoal,
-                        textAlign: "left",
-                        padding: "10px 12px",
-                        cursor: "pointer",
-                        display: "flex",
-                        flexDirection: "column",
-                        gap: 2,
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontSize: 11,
-                          fontWeight: 700,
-                          letterSpacing: "0.04em",
-                        }}
-                      >
-                        {epic.key}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: 12,
-                          opacity: 0.8,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {importingEpicKey === epic.key
-                          ? "Importing..."
-                          : epic.title}
-                      </span>
-                    </button>
-                  ))
-                )}
+                Sign in to search Jira epics
               </div>
             )}
           </div>
@@ -2738,6 +2788,9 @@ export default function GanttEarth() {
             overflow: "auto",
             position: "relative",
             cursor: isDragging || draggingMarkerId ? "grabbing" : "default",
+            borderLeft: `1px solid ${activeTab?.color ?? C.ruleLight}`,
+            borderTop: `1px solid ${activeTab?.color ?? C.ruleLight}`,
+            boxShadow: `inset 0 0 0 1px ${(activeTab?.color ?? C.ruleLight) + "30"}`,
           }}
         >
           <div
@@ -3314,6 +3367,39 @@ export default function GanttEarth() {
           </div>
         </div>
       </div>
+
+      <AlertDialog
+        open={Boolean(jiraImportNotice) && isJiraNoticeDialogOpen}
+        onOpenChange={(open) => {
+          setIsJiraNoticeDialogOpen(open);
+          if (!open) {
+            clearJiraImportNotice();
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {jiraImportNotice?.kind === "duplicate-epic"
+                ? "Epic already on timeline"
+                : "Default Jira dates applied"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {jiraImportNotice?.message ?? ""}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogAction
+              onClick={() => {
+                setIsJiraNoticeDialogOpen(false);
+                clearJiraImportNotice();
+              }}
+            >
+              OK
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog
         open={Boolean(tabPendingDelete)}

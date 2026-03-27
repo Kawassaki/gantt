@@ -151,8 +151,9 @@ export const importJiraEpicAtom = atom(
     const existingLinks = get(jiraIssueLinksAtom);
     if (existingLinks[details.epic.key]) {
       set(jiraImportNoticeAtom, {
+        kind: "duplicate-epic",
         fallbackCount: 0,
-        message: `${details.epic.key} is already imported in this timeline.`,
+        message: `${details.epic.key} is already on the timeline.`,
       });
       return;
     }
@@ -201,6 +202,7 @@ export const importJiraEpicAtom = atom(
 
     if (fallbackCount > 0) {
       set(jiraImportNoticeAtom, {
+        kind: "fallback-dates",
         fallbackCount,
         message: `${fallbackCount} Jira item(s) had no dates. Defaulted to today and +7 days.`,
       });

@@ -86,6 +86,7 @@ describe("jiraActions", () => {
     );
 
     expect(store.get(jiraImportNoticeAtom)?.fallbackCount).toBe(2);
+    expect(store.get(jiraImportNoticeAtom)?.kind).toBe("fallback-dates");
 
     store.set(clearJiraImportNoticeAtom);
     expect(store.get(jiraImportNoticeAtom)).toBeNull();
@@ -258,7 +259,8 @@ describe("jiraActions", () => {
 
     expect(store.get(tasksAtom)).toHaveLength(beforeCount);
     expect(store.get(jiraImportNoticeAtom)?.message).toContain(
-      "already imported"
+      "already on the timeline"
     );
+    expect(store.get(jiraImportNoticeAtom)?.kind).toBe("duplicate-epic");
   });
 });
