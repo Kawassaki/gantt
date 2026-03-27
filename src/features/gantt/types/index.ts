@@ -13,3 +13,13 @@ export type {
   DragState,
 } from "./domain";
 export type { ThemeMode, ThemePreference } from "./theme";
+export type {
+  JiraAuthStatus,
+  JiraEpicDetails,
+  JiraEpicSearchItem,
+  JiraImportNotice,
+  JiraIssueLink,
+  JiraIssueSummary,
+  JiraSyncState,
+  JiraUser,
+} from "./jira";

@@ -66,6 +66,63 @@ pnpm preview
 - `pnpm test:watch` - run tests in watch mode
 - `pnpm test:coverage` - run tests with coverage output
 
+## Jira Integration Modes
+
+This project now supports two Jira integration modes:
+
+1. `VITE_JIRA_MOCK=true` (default)
+
+- Frontend-only mocked Jira client data.
+- No backend calls required.
+
+2. `VITE_JIRA_MOCK=false`
+
+- Frontend calls `/api/jira/*`.
+- In local development, Vite serves a modular Jira BFF middleware from `server/jira/`.
+- Endpoints include sign-in, session restore, sign-out, epic search, epic details, and sync.
+
+Set env var before starting dev server:
+
+```bash
+VITE_JIRA_MOCK=false pnpm dev
+```
+
+Runtime diagnostics:
+
+- `GET /api/jira/health` returns provider mode, callback URL, scope count, and config readiness flag.
+- Dev server prints a Jira startup banner with active mode and health endpoint path.
+
+Current local backend is intentionally a development scaffold and keeps session state in memory.
+It is structured to be replaced by a production OAuth 2.0 (3LO + PKCE) BFF implementation.
+
+## Jira Production OAuth Setup
+
+The backend plugin now supports Atlassian OAuth 2.0 (3LO + PKCE) flow when configured.
+
+1. Copy `.env.example` to `.env` and set values.
+2. Set `JIRA_PROVIDER_MODE=atlassian`.
+3. Set `VITE_JIRA_MOCK=false`.
+4. Configure your Atlassian OAuth app callback URL to:
+
+- `http://localhost:4000/api/jira/auth/callback` (local)
+
+5. Start dev server:
+
+```bash
+pnpm dev
+```
+
+Auth flow in this mode:
+
+1. Frontend calls `POST /api/jira/auth/sign-in`.
+2. Backend generates PKCE + state and returns `authUrl`.
+3. Frontend redirects to Atlassian consent screen.
+4. Atlassian returns to `/api/jira/auth/callback`.
+5. Backend exchanges code, stores encrypted token bundle, restores app session, then redirects to frontend.
+
+Current token/session persistence is in-memory for this repository.
+For multi-instance production deployment, replace in-memory stores with persistent storage (Redis/DB/KMS-backed encryption).
+
 ## Documentation
 
 - Full implementation breakdown: `docs/gantt-features-and-implementation-2026-03-25.md`
