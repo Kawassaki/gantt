@@ -4,25 +4,25 @@ import { URL } from "node:url";
 import {
   loadJiraProviderConfig,
   validateAtlassianConfig,
-} from "../../server/jira/config";
+} from "../../server/jira/config.js";
 import {
   createClearedCookieHeader,
   createCookieHeader,
   getCookieValue,
   getJsonBody,
   JIRA_SESSION_COOKIE_NAME,
-} from "../../server/jira/httpUtils";
-import { flattenJiraIssues, jiraDevEpics } from "../../server/jira/mockData";
+} from "../../server/jira/httpUtils.js";
+import { flattenJiraIssues, jiraDevEpics } from "../../server/jira/mockData.js";
 import {
   buildAtlassianAuthorizeUrl,
   exchangeCodeForTokenBundle,
   refreshTokenBundle,
-} from "../../server/jira/oauthClient";
+} from "../../server/jira/oauthClient.js";
 import {
   generatePkceChallenge,
   generatePkceVerifier,
   generateRandomToken,
-} from "../../server/jira/pkce";
+} from "../../server/jira/pkce.js";
 import {
   consumeOauthState,
   createAnonymousSession,
@@ -32,7 +32,7 @@ import {
   storeEncryptedTokenBundle,
   storeOauthState,
   upsertJiraSession,
-} from "../../server/jira/sessionStore";
+} from "../../server/jira/sessionStore.js";
 
 const jsonResponse = <T>(
   res: ServerResponse,
@@ -209,7 +209,7 @@ const handleAuthCallback = async (
   );
 
   const { fetchAtlassianCloudId, fetchAtlassianCurrentUser } = await import(
-    "../../server/jira/atlassianApi"
+    "../../server/jira/atlassianApi.js"
   );
 
   const cloudId = await fetchAtlassianCloudId(fetch, tokenBundle.accessToken);
@@ -393,7 +393,7 @@ const routeRequest = async (
       handleEpicSearchMock(req, res);
     } else {
       const { searchAtlassianEpics } = await import(
-        "../../server/jira/atlassianApi"
+        "../../server/jira/atlassianApi.js"
       );
       const accessToken = await getAtlassianAccessToken(
         config,
@@ -417,7 +417,7 @@ const routeRequest = async (
       handleEpicDetailsMock(req, res);
     } else {
       const { fetchAtlassianEpicDetails } = await import(
-        "../../server/jira/atlassianApi"
+        "../../server/jira/atlassianApi.js"
       );
       const accessToken = await getAtlassianAccessToken(
         config,
@@ -443,7 +443,7 @@ const routeRequest = async (
       await handleIssueSyncMock(req, res);
     } else {
       const { fetchAtlassianIssueSync } = await import(
-        "../../server/jira/atlassianApi"
+        "../../server/jira/atlassianApi.js"
       );
       const body = await getJsonBody<{ issueKeys?: string[] }>(req);
       const accessToken = await getAtlassianAccessToken(
