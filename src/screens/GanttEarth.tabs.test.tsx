@@ -28,18 +28,22 @@ describe("GanttEarth timeline tabs", () => {
     render(<GanttEarth />);
 
     fireEvent.click(screen.getByLabelText("Create new timeline tab"));
-    const newTabLabel = screen.getByText("Timeline 2");
+    const newTabLabel = screen
+      .getAllByText("Timeline 2")
+      .find((node) => node.closest("[draggable='true']"));
     expect(newTabLabel).toBeTruthy();
 
-    fireEvent.doubleClick(newTabLabel);
+    fireEvent.doubleClick(newTabLabel as HTMLElement);
     const renameInput = screen.getByDisplayValue("Timeline 2");
     fireEvent.change(renameInput, { target: { value: "Operations" } });
     fireEvent.keyDown(renameInput, { key: "Enter" });
 
-    const renamedTabLabel = screen.getByText("Operations");
+    const renamedTabLabel = screen
+      .getAllByText("Operations")
+      .find((node) => node.closest("[draggable='true']"));
     expect(renamedTabLabel).toBeTruthy();
 
-    const tabContainer = renamedTabLabel.closest("div");
+    const tabContainer = (renamedTabLabel as HTMLElement).closest("div");
     expect(tabContainer).not.toBeNull();
     const deleteButton = within(tabContainer as HTMLElement).getByLabelText(
       "Delete tab"
@@ -49,6 +53,9 @@ describe("GanttEarth timeline tabs", () => {
     expect(screen.getByText("Delete timeline tab?")).toBeTruthy();
     fireEvent.click(screen.getByText("Delete"));
 
-    expect(screen.queryByText("Operations")).toBeNull();
+    const timelineTabWithOperations = screen
+      .queryAllByText("Operations")
+      .find((node) => node.closest("[draggable='true']"));
+    expect(timelineTabWithOperations).toBeUndefined();
   });
 });

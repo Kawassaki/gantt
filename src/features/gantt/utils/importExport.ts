@@ -254,3 +254,17 @@ export const readJsonFile = (file: File): Promise<JsonValue> =>
     reader.onerror = () => reject(new Error("Failed to read file"));
     reader.readAsText(file);
   });
+
+export const importExportInternals = {
+  isString,
+  isJsonObject,
+  isIsoDate,
+  parseSubtask,
+  parseTask,
+  parseMarker,
+  parseTimelineConfig,
+  parseTimelineTab,
+  parseTimelineTabData,
+  parseLegacyPayload,
+  parseTabPayload,
+};
