@@ -1,5 +1,5 @@
 export const config = {
-	runtime: "nodejs",
+  runtime: "nodejs",
 };
 
 export { default } from "./handler";
