@@ -24,9 +24,10 @@ export const generatePkceVerifier = (): string => generateRandomToken(64);
 export const generatePkceChallenge = async (
   verifier: string
 ): Promise<string> => {
+  const bytes = utf8Bytes(verifier) as unknown as BufferSource;
   const digest = await globalThis.crypto.subtle.digest(
     "SHA-256",
-    utf8Bytes(verifier)
+    bytes
   );
   return toBase64Url(new Uint8Array(digest));
 };

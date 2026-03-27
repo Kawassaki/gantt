@@ -6,7 +6,7 @@ export const getJsonBody = async <T>(req: IncomingMessage): Promise<T> => {
   const chunks: Buffer[] = [];
 
   await new Promise<void>((resolve, reject) => {
-    req.on("data", (chunk) => {
+    req.on("data", (chunk: Buffer | string) => {
       chunks.push(Buffer.from(chunk));
     });
     req.on("end", () => resolve());
@@ -28,8 +28,10 @@ export const getCookieValue = (
   const header = req.headers.cookie;
   if (!header) return undefined;
 
-  const cookies = header.split(";").map((entry) => entry.trim());
-  const target = cookies.find((entry) => entry.startsWith(`${cookieName}=`));
+  const cookies = header.split(";").map((entry: string) => entry.trim());
+  const target = cookies.find((entry: string) =>
+    entry.startsWith(`${cookieName}=`)
+  );
   if (!target) return undefined;
 
   return decodeURIComponent(target.slice(cookieName.length + 1));
