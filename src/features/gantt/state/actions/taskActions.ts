@@ -4,6 +4,7 @@ import { atom } from "jotai";
 import { DEFAULT_TASK_COLORS } from "../../constants";
 import type { Task } from "../../types";
 import { createTaskId } from "../../utils/ids";
+import { jiraIssueLinksAtom } from "../jiraStore";
 import { tasksAtom } from "../store";
 
 import { pushUndoAtom } from "./historyActions";
@@ -55,4 +56,11 @@ export const deleteTaskAtom = atom(null, (get, set, taskId: string) => {
     tasksAtom,
     get(tasksAtom).filter((task) => task.id !== taskId)
   );
+
+  const nextLinks = Object.fromEntries(
+    Object.entries(get(jiraIssueLinksAtom)).filter(
+      ([, link]) => link.taskId !== taskId
+    )
+  );
+  set(jiraIssueLinksAtom, nextLinks);
 });

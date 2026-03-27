@@ -1,6 +1,7 @@
 import { createStore } from "jotai";
 import { describe, expect, it } from "vitest";
 
+import { jiraIssueLinksAtom } from "../jiraStore";
 import { tasksAtom } from "../store";
 
 import {
@@ -98,11 +99,43 @@ describe("subtaskActions", () => {
   it("deletes a subtask by id", () => {
     const store = createStore();
     store.set(tasksAtom, [taskWithSubtask, { ...taskWithSubtask, id: "t-2" }]);
+    store.set(jiraIssueLinksAtom, {
+      "ENG-1": {
+        issueKey: "ENG-1",
+        taskId: "t-1",
+        isEpic: true,
+      },
+      "ENG-2": {
+        issueKey: "ENG-2",
+        taskId: "t-1",
+        subtaskId: "s-1",
+        isEpic: false,
+      },
+      "ENG-3": {
+        issueKey: "ENG-3",
+        taskId: "t-1",
+        subtaskId: "s-2",
+        isEpic: false,
+      },
+    });
 
     store.set(deleteSubtaskAtom, { taskId: "t-1", subtaskId: "s-1" });
 
     const [firstTask, secondTask] = store.get(tasksAtom);
     expect(firstTask.subtasks.map((subtask) => subtask.id)).toEqual(["s-2"]);
     expect(secondTask.subtasks).toHaveLength(2);
+    expect(store.get(jiraIssueLinksAtom)).toEqual({
+      "ENG-1": {
+        issueKey: "ENG-1",
+        taskId: "t-1",
+        isEpic: true,
+      },
+      "ENG-3": {
+        issueKey: "ENG-3",
+        taskId: "t-1",
+        subtaskId: "s-2",
+        isEpic: false,
+      },
+    });
   });
 });

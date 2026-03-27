@@ -2,6 +2,7 @@ import { atom } from "jotai";
 
 import type { Subtask } from "../../types";
 import { createSubtaskId } from "../../utils/ids";
+import { jiraIssueLinksAtom } from "../jiraStore";
 import { tasksAtom } from "../store";
 
 import { pushUndoAtom } from "./historyActions";
@@ -102,5 +103,12 @@ export const deleteSubtaskAtom = atom(
           : task
       )
     );
+
+    const nextLinks = Object.fromEntries(
+      Object.entries(get(jiraIssueLinksAtom)).filter(
+        ([, link]) => !(link.taskId === taskId && link.subtaskId === subtaskId)
+      )
+    );
+    set(jiraIssueLinksAtom, nextLinks);
   }
 );
